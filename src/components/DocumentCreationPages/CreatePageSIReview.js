@@ -8,7 +8,7 @@ import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';  // Import CSS for styling
 import LoadDraftPopup from "../CreatePage/LoadDraftPopup";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFloppyDisk, faCheckCircle, faSpinner, faRotateLeft, faFolderOpen, faChevronLeft, faChevronRight, faFileCirclePlus, faArrowLeft, faSort, faCircleUser, faBell, faShareNodes, faUpload, faRotateRight, faCircleExclamation, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faMagicWandSparkles, faCalendarDays, faX } from '@fortawesome/free-solid-svg-icons';
+import { faFloppyDisk, faCheckCircle, faSpinner, faRotateLeft, faFolderOpen, faChevronLeft, faChevronRight, faFileCirclePlus, faArrowLeft, faSort, faCircleUser, faBell, faShareNodes, faUpload, faRotateRight, faCircleExclamation, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faMagicWandSparkles, faCalendarDays, faX, faCopy } from '@fortawesome/free-solid-svg-icons';
 import { faFolderOpen as faFolderOpenSolid } from "@fortawesome/free-regular-svg-icons"
 import SharePage from "../CreatePage/SharePage";
 import TopBarDD from "../Notifications/TopBarDD";
@@ -1446,18 +1446,11 @@ const CreatePageSIReview = () => {
               <FontAwesomeIcon icon={faFloppyDisk} title="Save" onClick={handleSave} />
             </div>)}
 
-            {!readOnly && (<div className="burger-menu-icon-risk-create-page-1">
-              <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={openSaveAs} title="Save As">
-                {/* base floppy-disk, full size */}
-                <FontAwesomeIcon icon={faSave} />
-                {/* pen, shrunk & nudged down/right into corner */}
-                <FontAwesomeIcon
-                  icon={faPen}
-                  transform="shrink-6 down-5 right-7"
-                  color="gray"   /* or whatever contrast you need */
-                />
-              </span>
-            </div>)}
+            {(
+              <div className="burger-menu-icon-risk-create-page-1">
+                <FontAwesomeIcon icon={faCopy} onClick={openSaveAs} title="Create Copy" />
+              </div>
+            )}
 
             {!readOnly && (<div className="burger-menu-icon-risk-create-page-1">
               <FontAwesomeIcon icon={faRotateLeft} onClick={undoLastChange} title="Undo" />
@@ -1500,7 +1493,7 @@ const CreatePageSIReview = () => {
                   name="title"
                   className="font-fam title-input"
                   value={formData.title}
-                  readOnly={readOnly}
+                  readOnly
                   onChange={handleInputChange}
                   placeholder="Title of your document (e.g., Surface TMM Pre-Use Checklist)"
                 />

@@ -12,7 +12,7 @@ import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';  // Import CSS for styling
 import LoadDraftPopup from "../CreatePage/LoadDraftPopup";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faChevronLeft, faChevronRight, faFileCirclePlus, faArrowLeft, faSort, faCircleUser, faBell, faShareNodes, faUpload, faRotateRight, faCircleExclamation, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faMagicWandSparkles, faInfo, faCheckCircle } from '@fortawesome/free-solid-svg-icons';
+import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faChevronLeft, faChevronRight, faFileCirclePlus, faArrowLeft, faSort, faCircleUser, faBell, faShareNodes, faUpload, faRotateRight, faCircleExclamation, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faMagicWandSparkles, faInfo, faCheckCircle, faCopy } from '@fortawesome/free-solid-svg-icons';
 import { faFolderOpen as faFolderOpenSolid } from "@fortawesome/free-regular-svg-icons"
 import SharePage from "../CreatePage/SharePage";
 import TopBarDD from "../Notifications/TopBarDD";
@@ -1798,25 +1798,18 @@ const FTSCreatePageTemplatesReview = () => {
 
             {/* This page is always read-only — Save As is the only action
                 icon shown, so people can branch off a copy to edit. */}
-            <div className="burger-menu-icon-risk-create-page-1">
-              <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={openSaveAs} title="Save As">
-                {/* base floppy-disk, full size */}
-                <FontAwesomeIcon icon={faSave} />
-                {/* pen, shrunk & nudged down/right into corner */}
-                <FontAwesomeIcon
-                  icon={faPen}
-                  transform="shrink-6 down-5 right-7"
-                  color="gray"   /* or whatever contrast you need */
-                />
-              </span>
-            </div>
+            {(
+              <div className="burger-menu-icon-risk-create-page-1">
+                <FontAwesomeIcon icon={faCopy} onClick={openSaveAs} title="Create Copy" />
+              </div>
+            )}
           </div>
 
           {/* This div creates the space in the middle */}
           <div className="spacer"></div>
 
           {/* Container for right-aligned icons */}
-          <TopBarDD refreshable={true} canIn={canIn} access={access} menu={"1"} create={true} onHome={handleHomeNav} refreshable={false} />
+          <TopBarDD canIn={canIn} access={access} menu={"1"} create={true} onHome={handleHomeNav} refreshable={false} />
 
         </div>
 

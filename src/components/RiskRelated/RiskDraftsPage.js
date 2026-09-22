@@ -2,10 +2,12 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { jwtDecode } from 'jwt-decode';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faTrash, faCircleLeft, faPenToSquare, faRotateLeft, faArrowsRotate, faMagnifyingGlass, faCircleXmark, faX, faFilter, faSortUp, faSortDown, faArrowLeft, faCaretRight, faCaretLeft, faSearch } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faTrash, faCircleLeft, faPenToSquare, faRotateLeft, faArrowsRotate, faMagnifyingGlass, faCircleXmark, faX, faFilter, faSortUp, faSortDown, faArrowLeft, faCaretRight, faCaretLeft, faSearch, faEdit } from '@fortawesome/free-solid-svg-icons';
 import DeleteDraftPopup from "../Popups/DeleteDraftPopup";
 import TopBar from "../Notifications/TopBar";
 import { toast, ToastContainer } from "react-toastify";
+import RenameDraftPopup from "../Popups/RenameDraftPopup";
+import DraftOptionsPopup from "../Popups/DraftOptionsPopup";
 
 const RiskDraftsPage = () => {
     const [drafts, setDrafts] = useState([]);
@@ -21,6 +23,8 @@ const RiskDraftsPage = () => {
     const [isLoadingDraft, setIsLoadingDraft] = useState(false);
     const [isSidebarVisible, setIsSidebarVisible] = useState(false);
     const [userID, setUserID] = useState('');
+    const [openDraftMenuId, setOpenDraftMenuId] = useState(null);
+    const [renamePopup, setRenamePopup] = useState({ open: false, draftId: null, currentTitle: "" });
     const navigate = useNavigate();
     const { type } = useParams();
 
@@ -50,21 +54,27 @@ const RiskDraftsPage = () => {
                 icon: `${process.env.PUBLIC_URL}/ibra2.svg`,
                 loadRoute: `${process.env.REACT_APP_URL}/api/riskDraft/ibra/drafts/${userID}`,
                 deleteRoute: (draftId) => `${process.env.REACT_APP_URL}/api/riskDraft/ibra/delete/${draftId}`,
+                renameRoute: (draftId) => `${process.env.REACT_APP_URL}/api/riskDraft/ibra/rename/${draftId}`,
                 rowClickRoute: (draftId) => `/FrontendDMS/riskIBRA/IBRA/${draftId}`,
+                versionHistoryRoute: (draftId) => `/FrontendDMS/rmsDraftHistory/ibra/${draftId}`,
             },
 
             jra: {
                 icon: `${process.env.PUBLIC_URL}/jra2.svg`,
                 loadRoute: `${process.env.REACT_APP_URL}/api/riskDraft/jra/drafts/${userID}`,
                 deleteRoute: (draftId) => `${process.env.REACT_APP_URL}/api/riskDraft/jra/delete/${draftId}`,
+                renameRoute: (draftId) => `${process.env.REACT_APP_URL}/api/riskDraft/jra/rename/${draftId}`,
                 rowClickRoute: (draftId) => `/FrontendDMS/riskJRA/JRA/${draftId}`,
+                versionHistoryRoute: (draftId) => `/FrontendDMS/rmsDraftHistory/jra/${draftId}`,
             },
 
             blra: {
                 icon: `${process.env.PUBLIC_URL}/blra2.svg`,
                 loadRoute: `${process.env.REACT_APP_URL}/api/riskDraft/blra/drafts/${userID}`,
                 deleteRoute: (draftId) => `${process.env.REACT_APP_URL}/api/riskDraft/blra/delete/${draftId}`,
+                renameRoute: (draftId) => `${process.env.REACT_APP_URL}/api/riskDraft/blra/rename/${draftId}`,
                 rowClickRoute: (draftId) => `/FrontendDMS/riskBLRA/BLRA/${draftId}`,
+                versionHistoryRoute: (draftId) => `/FrontendDMS/rmsDraftHistory/blra/${draftId}`,
             },
 
             default: {
@@ -99,6 +109,12 @@ const RiskDraftsPage = () => {
 
     const getDraftStatus = (item) => {
         const userIDs = Array.isArray(item?.userIDs) ? item.userIDs : [];
+        if (item.isWithdrawn) {
+            return "Published - Withdrawn"
+        }
+        if (item.isRejected) {
+            return "Published - Rejected"
+        }
         return userIDs.length > 1 ? "In Collaboration" : "In Development";
     };
 
@@ -269,6 +285,51 @@ const RiskDraftsPage = () => {
         closeDelete();
     };
 
+    const openRename = (item) => {
+        if (item.lockActive) {
+            toast.warn("This draft is currently locked and its title cannot be changed.", { closeButton: false });
+            return;
+        }
+        setRenamePopup({ open: true, draftId: item._id, currentTitle: item.formData?.title || "" });
+    };
+
+    const closeRename = () => {
+        setRenamePopup({ open: false, draftId: null, currentTitle: "" });
+    };
+
+    const handleRename = async (newTitle) => {
+        const { draftId } = renamePopup;
+        if (!draftId || !pageConfig.renameRoute) return;
+
+        try {
+            const response = await fetch(pageConfig.renameRoute(draftId), {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+                body: JSON.stringify({ title: newTitle }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || "Failed to rename draft");
+            }
+
+            setDrafts(prev => prev.map(draft =>
+                draft._id === draftId
+                    ? { ...draft, formData: { ...draft.formData, title: newTitle } }
+                    : draft
+            ));
+
+            toast.success("Draft renamed successfully");
+        } catch (error) {
+            console.error("Failed to rename draft:", error);
+            toast.error(error.message || "Failed to rename draft");
+            throw error;
+        }
+    };
+
     const clearSearch = () => {
         setQuery("");
     }
@@ -356,7 +417,7 @@ const RiskDraftsPage = () => {
                     </div>
 
                     <div className="button-container-create">
-                        <button className="but-um" onClick={() => navigate(`/deletedRiskDrafts/${type}`)}>
+                        <button className="but-um" onClick={() => navigate(`/FrontendDMS/deletedRiskDrafts/${type}`)}>
                             <div className="button-content">
                                 <FontAwesomeIcon icon={faTrash} className="button-logo-custom" />
                                 <span className="button-text">Deleted Drafts</span>
@@ -470,7 +531,26 @@ const RiskDraftsPage = () => {
                                                     <td style={{ fontFamily: "Arial", textAlign: "center" }}>
                                                         {index + 1}
                                                     </td>
-                                                    <td style={{ fontFamily: "Arial" }}>{item.formData.title}</td>
+                                                    <td
+                                                        style={{ fontFamily: "Arial", cursor: "pointer" }}
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            setOpenDraftMenuId((current) => current === item._id ? null : item._id);
+                                                        }}
+                                                    >
+                                                        <div className="draft-options-anchor">
+                                                            <span>{item.formData.title}</span>
+                                                            <DraftOptionsPopup
+                                                                isOpen={openDraftMenuId === item._id}
+                                                                draft={item}
+                                                                openDraftRoute={pageConfig.rowClickRoute(item._id)}
+                                                                versionHistoryRoute={pageConfig.versionHistoryRoute
+                                                                    ? pageConfig.versionHistoryRoute(item._id)
+                                                                    : null}
+                                                                onClose={() => setOpenDraftMenuId(null)}
+                                                            />
+                                                        </div>
+                                                    </td>
                                                     <td style={{ textAlign: "center", fontFamily: "Arial", ...getStatusStyle(getDraftStatus(item)) }}>
                                                         {getDraftStatus(item)}
                                                     </td>
@@ -488,13 +568,24 @@ const RiskDraftsPage = () => {
                                                         {item.lockActive ? "Active" : item.dateUpdated ? formatDateTime(item.dateUpdated) : "Not Updated Yet"}
                                                     </td>
                                                     <td className="load-draft-delete" >
-                                                        <button
-                                                            className={"action-button-load-draft delete-button-load-draft"}
-                                                            style={{ width: "100%" }}
-                                                            onClick={(e) => { e.stopPropagation(); confirmDelete(item._id, item.formData.title, item?.creator?._id) }}
-                                                        >
-                                                            <FontAwesomeIcon icon={faTrash} title="Remove Draft" />
-                                                        </button>
+                                                        <div className="load-draft-actions">
+                                                            {pageConfig.renameRoute && String(item?.creator?._id) === String(userID) && (
+                                                                <button
+                                                                    className={"action-button-load-draft delete-button-load-draft"}
+                                                                    style={{ width: "100%" }}
+                                                                    onClick={(e) => { e.stopPropagation(); openRename(item) }}
+                                                                >
+                                                                    <FontAwesomeIcon icon={faEdit} title="Rename Document" />
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                className={"action-button-load-draft delete-button-load-draft"}
+                                                                style={{ width: "100%" }}
+                                                                onClick={(e) => { e.stopPropagation(); confirmDelete(item._id, item.formData.title, item?.creator?._id) }}
+                                                            >
+                                                                <FontAwesomeIcon icon={faTrash} title="Remove Draft" />
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))
@@ -522,6 +613,16 @@ const RiskDraftsPage = () => {
                 </div>
             </div>
             {deletePopup && (<DeleteDraftPopup closeModal={closeDelete} deleteDraft={handleDelete} draftName={title} author={author} />)}
+
+            {renamePopup.open && (
+                <RenameDraftPopup
+                    onClose={closeRename}
+                    onRename={handleRename}
+                    current={renamePopup.currentTitle}
+                    draftId={renamePopup.draftId}
+                    siblingDraftsRoute={pageConfig.loadRoute}
+                />
+            )}
 
             {excelFilter.open && (
                 <div className="excel-filter-popup" ref={excelPopupRef} style={{ position: "fixed", top: excelFilter.pos.top, left: excelFilter.pos.left, width: excelFilter.pos.width, zIndex: 9999 }} onWheel={handleInnerScrollWheel}>

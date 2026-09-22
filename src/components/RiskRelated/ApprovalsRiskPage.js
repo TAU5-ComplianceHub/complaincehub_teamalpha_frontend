@@ -2,17 +2,17 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { jwtDecode } from 'jwt-decode';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faTrash, faX, faFilter, faArrowLeft, faCaretRight, faCaretLeft, faSearch } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faTrash, faX, faFilter, faArrowLeft, faCaretRight, faCaretLeft, faSearch, faFileArrowDown } from '@fortawesome/free-solid-svg-icons';
 import TopBar from "../Notifications/TopBar";
 import { toast, ToastContainer } from "react-toastify";
 import RemoveFromApprovalPopup from "../Popups/RemoveFromApprovalPopup";
+import { getCurrentUser, can, canIn, isAdmin } from "../../utils/auth";
 
 // Same shell as ApprovalsPage (document development), but backed by the risk
 // review/approval workflow: risk assessments that are "In Review" or "In
-// Approval" live here instead of in Saved Drafts. Swapping between risk types
-// is done purely off the ":type" route param, e.g. /riskManagementApprovals/ibra
-// vs /riskManagementApprovals/jra vs /riskManagementApprovals/blra — same
-// pattern as /documentDevelopmentApprovals/:type.
+// Approval" live here instead of in Saved Drafts or Under Revision. Each row
+// carries a workflowSource so development drafts and published-document
+// revisions can open their different editor routes from the same table.
 const RISK_TYPE_CONFIG = {
     ibra: {
         icon: `${process.env.PUBLIC_URL}/ibra2.svg`,
@@ -20,6 +20,8 @@ const RISK_TYPE_CONFIG = {
         loadRoute: `${process.env.REACT_APP_URL}/api/riskDraft/ibra/reviewApprovalDrafts`,
         removeApprovalRoute: `${process.env.REACT_APP_URL}/api/riskApprovals/remove-from-approval-ibra-draft`,
         rowClickRoute: (draftId) => `/FrontendDMS/riskIBRA/IBRA/${draftId}`,
+        revisionRowClickRoute: (documentId) => `/FrontendDMS/reviewIBRA/${documentId}/IBRA`,
+        revisionRemoveApprovalRoute: (documentId) => `${process.env.REACT_APP_URL}/api/fileGenDocs/ibra/removeFromApproval/${documentId}`,
     },
     jra: {
         icon: `${process.env.PUBLIC_URL}/jra2.svg`,
@@ -27,6 +29,8 @@ const RISK_TYPE_CONFIG = {
         loadRoute: `${process.env.REACT_APP_URL}/api/riskDraft/jra/reviewApprovalDrafts`,
         removeApprovalRoute: `${process.env.REACT_APP_URL}/api/riskApprovals/remove-from-approval-jra-draft`,
         rowClickRoute: (draftId) => `/FrontendDMS/riskJRA/JRA/${draftId}`,
+        revisionRowClickRoute: (documentId) => `/FrontendDMS/reviewJRA/${documentId}/JRA`,
+        revisionRemoveApprovalRoute: (documentId) => `${process.env.REACT_APP_URL}/api/fileGenDocs/jra/removeFromApproval/${documentId}`,
     },
     blra: {
         icon: `${process.env.PUBLIC_URL}/blra2.svg`,
@@ -34,13 +38,19 @@ const RISK_TYPE_CONFIG = {
         loadRoute: `${process.env.REACT_APP_URL}/api/riskDraft/blra/reviewApprovalDrafts`,
         removeApprovalRoute: `${process.env.REACT_APP_URL}/api/riskApprovals/remove-from-approval-blra-draft`,
         rowClickRoute: (draftId) => `/FrontendDMS/riskBLRA/BLRA/${draftId}`,
+        revisionRowClickRoute: (documentId) => `/FrontendDMS/reviewBLRA/${documentId}/BLRA`,
+        revisionRemoveApprovalRoute: (documentId) => `${process.env.REACT_APP_URL}/api/fileGenDocs/blra/removeFromApproval/${documentId}`,
     },
 };
 
 const ApprovalsRiskPage = () => {
     const [drafts, setDrafts] = useState([]);
     const [query, setQuery] = useState('');
-    const [removeConfirm, setRemoveConfirm] = useState({ open: false, draftId: null });
+    const [removeConfirm, setRemoveConfirm] = useState({
+        open: false,
+        draftId: null,
+        workflowSource: null,
+    });
     const [isLoading, setIsLoading] = useState(true);
     const [showNoDrafts, setShowNoDrafts] = useState(false);
     const [removePopup, setRemovePopup] = useState(false);
@@ -52,6 +62,9 @@ const ApprovalsRiskPage = () => {
     const [removeLoading, setRemoveLoading] = useState(false);
     const navigate = useNavigate();
     const { type } = useParams();
+
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "RMS", ["systemAdmin"]);
 
     // Excel Filter States
     const [excelFilter, setExcelFilter] = useState({
@@ -76,6 +89,10 @@ const ApprovalsRiskPage = () => {
     const pageConfig = useMemo(() => {
         return RISK_TYPE_CONFIG[type] || RISK_TYPE_CONFIG.ibra;
     }, [type]);
+
+    const getRowClickRoute = (item) => item.workflowSource === "revision"
+        ? pageConfig.revisionRowClickRoute(item._id)
+        : pageConfig.rowClickRoute(item._id);
 
     const formatDateTime = (dateString) => {
         if (!dateString) return "Not Updated Yet";
@@ -184,14 +201,16 @@ const ApprovalsRiskPage = () => {
 
     const closeRemove = () => {
         setRemovePopup(false);
-        setRemoveConfirm({ open: false, draftId: null });
+        setRemoveConfirm({ open: false, draftId: null, workflowSource: null });
     };
 
     const fetchReviewApprovalDrafts = async () => {
         setIsLoading(true);
         setShowNoDrafts(false);
         const token = localStorage.getItem("token");
-        const route = pageConfig.loadRoute;
+        const route = isSystemAdmin
+            ? `${pageConfig.loadRoute}?isAdmin=true`
+            : pageConfig.loadRoute;
         try {
             const response = await fetch(route, {
                 method: "GET",
@@ -210,7 +229,7 @@ const ApprovalsRiskPage = () => {
     useEffect(() => {
         fetchReviewApprovalDrafts();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pageConfig]);
+    }, [pageConfig, isSystemAdmin]);
 
     useEffect(() => {
         if (!isLoading && drafts.length === 0) {
@@ -221,17 +240,23 @@ const ApprovalsRiskPage = () => {
         }
     }, [isLoading, drafts]);
 
-    const confirmRemove = (draftId, draftTitle) => {
-        setRemoveConfirm({ open: true, draftId });
-        setTitle(draftTitle);
+    const confirmRemove = (item) => {
+        setRemoveConfirm({
+            open: true,
+            draftId: item._id,
+            workflowSource: item.workflowSource || "draft",
+        });
+        setTitle(item.formData?.title || "Risk assessment");
         setRemovePopup(true);
     };
 
     const handleRemoveApproval = async () => {
-        const { draftId } = removeConfirm;
+        const { draftId, workflowSource } = removeConfirm;
         if (!draftId) return;
 
-        const route = pageConfig.removeApprovalRoute;
+        const route = workflowSource === "revision"
+            ? pageConfig.revisionRemoveApprovalRoute(draftId)
+            : pageConfig.removeApprovalRoute;
 
         try {
             setRemoveLoading(true);
@@ -249,9 +274,12 @@ const ApprovalsRiskPage = () => {
                 throw new Error(errText || "Failed to remove the risk assessment from the approval process");
             }
 
-            // Removing from approval moves it out of this folder and back into
-            // Saved Drafts, so it simply drops out of this list.
-            setDrafts(prev => prev.filter(d => d._id !== draftId));
+            // Development drafts return to Saved Drafts; published-document
+            // revisions return to Under Revision. Both leave this list.
+            setDrafts(prev => prev.filter((item) => !(
+                item._id === draftId &&
+                (item.workflowSource || "draft") === (workflowSource || "draft")
+            )));
 
             toast.success("Risk assessment removed from the review/approval process");
 
@@ -263,7 +291,7 @@ const ApprovalsRiskPage = () => {
             setRemoveLoading(false);
         }
 
-        setRemoveConfirm({ open: false, draftId: null });
+        setRemoveConfirm({ open: false, draftId: null, workflowSource: null });
         closeRemove();
     };
 
@@ -437,14 +465,20 @@ const ApprovalsRiskPage = () => {
                             <tbody>
                                 {!isLoading && drafts.length > 0 && filteredDrafts.length > 0 && (
                                     displayDrafts.map((item, index) => {
-                                        const isPublisher = item.publisher && String(item.publisher) === String(userID);
+                                        const workflowOwnerId = item.workflowOwnerId
+                                            || item.creator?._id
+                                            || item.creator
+                                            || item.publisher?._id
+                                            || item.publisher;
+                                        const isWorkflowOwner = workflowOwnerId
+                                            && String(workflowOwnerId) === String(userID);
                                         const statusClass = getStatusClass(item.documentStatus);
                                         return (
                                             <tr
-                                                key={item._id}
+                                                key={`${item.workflowSource || "draft"}-${item._id}`}
                                                 style={{ fontSize: "14px" }}
                                                 className="load-draft-td"
-                                                onClick={() => navigate(pageConfig.rowClickRoute(item._id))}
+                                                onClick={() => navigate(getRowClickRoute(item))}
                                             >
                                                 <td style={{ fontFamily: "Arial", textAlign: "center" }}>
                                                     {index + 1}
@@ -466,11 +500,11 @@ const ApprovalsRiskPage = () => {
                                                     <button
                                                         className={"action-button-load-draft delete-button-load-draft"}
                                                         style={{ width: "100%" }}
-                                                        disabled={!isPublisher}
-                                                        title={isPublisher ? "Remove from approval process" : "Only the publisher can remove this document from the approval process"}
-                                                        onClick={(e) => { e.stopPropagation(); confirmRemove(item._id, item.formData?.title); }}
+                                                        disabled={!isWorkflowOwner}
+                                                        title={isWorkflowOwner ? "Withdraw from approval process" : "Only the owner can remove this risk assessment from the approval process"}
+                                                        onClick={(e) => { e.stopPropagation(); confirmRemove(item); }}
                                                     >
-                                                        <FontAwesomeIcon icon={faTrash} title="Remove from approval process" />
+                                                        <FontAwesomeIcon icon={faFileArrowDown} title="Withdraw from approval process" />
                                                     </button>
                                                 </td>
                                             </tr>

@@ -126,7 +126,7 @@ const FTSDeletedTemplatesSO = () => {
         let val = "";
         switch (colId) {
             case "fileName":
-                val = removeFileExtension(file.formData.title);
+                val = (file.formData.title);
                 break;
             case "version":
                 val = file.formData.version;
@@ -420,7 +420,7 @@ const FTSDeletedTemplatesSO = () => {
                                         <td className="cent-values-gen gen-point">{index + 1}</td>
                                         <td className=" gen-point">
                                             <div className="popup-anchor">
-                                                <span>{removeFileExtension(file.formData.title)}</span>
+                                                <span>{(file.formData.title)}</span>
                                             </div>
                                         </td>
                                         <td className="cent-values-gen gen-point">{file.formData.version}</td>

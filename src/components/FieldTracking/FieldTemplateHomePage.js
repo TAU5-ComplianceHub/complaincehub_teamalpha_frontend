@@ -94,6 +94,14 @@ const FieldTemplateHomePage = () => {
                             <h3 className="document-title-risk-home">Controlled Templates<br /></h3>
                         </>
                     </div>)}
+                    {true && (<div className={`document-card-risk-home`} onClick={() => navigate("/FrontendDMS/fieldTemplateRevision")}>
+                        <>
+                            <div className="icon-risk">
+                                <img src={`${process.env.PUBLIC_URL}/tmsPublished.svg`} alt="Control Attributes" className="icon-risk" />
+                            </div>
+                            <h3 className="document-title-risk-home">Under Revision Templates<br /></h3>
+                        </>
+                    </div>)}
                 </div>
             </div>
             <ToastContainer />

@@ -478,7 +478,7 @@ const SuggestedTaskTemplates = () => {
         },
         {
             id: "discipline",
-            title: "Discipline",
+            title: "Department",
             thClass: "gen-th templateTask-discipline",
             tdClass: "task-cent",
             hidden: true,

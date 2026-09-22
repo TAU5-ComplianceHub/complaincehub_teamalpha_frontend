@@ -62,7 +62,7 @@ const FilterFileName = ({
                 onClick={(e) => onHeaderClick("discipline", e)}
             >
                 <div className="fileinfo-container-filter-1">
-                    <span className="fileinfo-title-filter-1 cursor-pointer">Discipline {getIcon("discipline")}</span>
+                    <span className="fileinfo-title-filter-1 cursor-pointer">Department {getIcon("discipline")}</span>
                 </div>
             </th>
 

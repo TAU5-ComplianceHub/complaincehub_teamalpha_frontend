@@ -129,7 +129,7 @@ const VisitorInductionMainPage = () => {
                             <h3 className="document-title-fi-home">Controlled Visitor Inductions</h3>
                         </>
                     </div>)}
-                    {false && (<div className={`document-card-risk-home`} onClick={() => navigate("/FrontendDMS/inductionRevisions")}>
+                    {true && (<div className={`document-card-risk-home`} onClick={() => navigate("/FrontendDMS/inductionRevisionInfo")}>
                         <>
                             <div className="icon-risk">
                                 <img src={`${process.env.PUBLIC_URL}/tmsPublished.svg`} alt="Control Attributes" className="icon-risk" />

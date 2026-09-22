@@ -8,13 +8,14 @@ import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';  // Import CSS for styling
 import LoadDraftPopup from "../CreatePage/LoadDraftPopup";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faChevronLeft, faChevronRight, faFileCirclePlus, faArrowLeft, faSort, faCircleUser, faBell, faShareNodes, faUpload, faRotateRight, faCircleExclamation, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faMagicWandSparkles, faInfo, faCalendarDays, faX, faCheckCircle } from '@fortawesome/free-solid-svg-icons';
+import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faChevronLeft, faChevronRight, faFileCirclePlus, faArrowLeft, faSort, faCircleUser, faBell, faShareNodes, faUpload, faRotateRight, faCircleExclamation, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faMagicWandSparkles, faInfo, faCalendarDays, faX, faCheckCircle, faCopy } from '@fortawesome/free-solid-svg-icons';
 import { faFolderOpen as faFolderOpenSolid } from "@fortawesome/free-regular-svg-icons"
 import SharePage from "../CreatePage/SharePage";
 import TopBarDD from "../Notifications/TopBarDD";
 import ChapterTable from "../CreatePage/ChapterTable";
 import SpecialInstructionsTable from "../CreatePage/SpecialInstructionsTable";
 import SaveAsPopup from "../Popups/SaveAsPopup";
+import RenameDraftPopup from "../Popups/RenameDraftPopup";
 import ReferenceTableSpecialInstructions from "../CreatePage/ReferenceTableSpecialInstructions";
 import DocumentSignaturesTableSI from "../CreatePage/DocumentSignaturesTableSI";
 import AbbreviationTableSI from "../CreatePage/AbbreviationTableSI";
@@ -32,11 +33,12 @@ import SavingInProgress from "./SavingInProgress";
 import PublishingInProgress from "./PublishingInProgress";
 import { useTauriCloseGuard } from "../../utils/useTauriCloseGuard";
 
-const CreatePageSI = () => {
+const CreatePageSI = ({ versionPreview = false, signedOffPreview = false }) => {
   const navigate = useNavigate();
   const access = getCurrentUser();
   const type = useParams().type;
   const draftId = useParams().id;
+  const versionNumber = useParams().version;
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
   const [share, setShare] = useState(false);
   const [usedAbbrCodes, setUsedAbbrCodes] = useState([]);
@@ -53,6 +55,7 @@ const CreatePageSI = () => {
   const [loadingAimIndex, setLoadingAimIndex] = useState(null);
   const [offlineDraft, setOfflineDraft] = useState(false);
   const [isSaveAsModalOpen, setIsSaveAsModalOpen] = useState(false);
+  const [isRenamePopupOpen, setIsRenamePopupOpen] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const [filteredSites, setFilteredSites] = useState([]);
   const [showSiteDropdown, setShowSiteDropdown] = useState(false);
@@ -65,7 +68,8 @@ const CreatePageSI = () => {
   const [generatePopup, setGeneratePopup] = useState(false);
   const [draftNote, setDraftNote] = useState(null);
   const [showWorkflow, setShowWorkflow] = useState(null);
-  const [readOnly, setReadOnly] = useState(false);
+  const previewOnly = versionPreview || signedOffPreview;
+  const [readOnly, setReadOnly] = useState(previewOnly);
   const [lockUser, setLockUser] = useState(null);
   const scrollBoxRef = useRef(null);
   const [owner, setOwner] = useState(false);
@@ -80,6 +84,8 @@ const CreatePageSI = () => {
   const [isSaving, setIsSaving] = useState(false); // spinner state for the top "Save" icon
   const [isPublishing, setIsPublishing] = useState(false); // spinner state for the top "Publish" icon
   const [isApproving, setIsApproving] = useState(false); // spinner state for the top "Approve" icon
+  const [isSavingVersion, setIsSavingVersion] = useState(false);
+  const [versionInfo, setVersionInfo] = useState(null);
 
   const SHARE_ROLES = ["collaborator", "viewer", "publisher"];
   const ALL_ALLOWED_ROLES = ["owner", ...SHARE_ROLES];
@@ -411,6 +417,54 @@ const CreatePageSI = () => {
 
   const closeSaveAs = () => {
     setIsSaveAsModalOpen(false);
+  };
+
+  const openRenamePopup = () => setIsRenamePopupOpen(true);
+  const closeRenamePopup = () => setIsRenamePopupOpen(false);
+
+  // Renames the currently loaded draft in place (title only) via the
+  // dedicated rename endpoint, rather than re-saving the whole draft.
+  const handleRenameDraft = async (newTitle) => {
+    const activeId = loadedIDRef.current || loadedID;
+    if (!activeId) return;
+
+    try {
+      const response = await fetch(`${process.env.REACT_APP_URL}/api/draft/special/rename/${activeId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({ title: newTitle }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to rename draft");
+      }
+
+      const newFormData = { ...formDataRef.current, title: newTitle };
+      setFormData(newFormData);
+      formDataRef.current = newFormData;
+
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.success("Draft renamed successfully.", {
+        closeButton: false,
+        autoClose: 1500,
+        style: { textAlign: 'center' }
+      });
+    } catch (err) {
+      console.error("Failed to rename draft:", err);
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.error(err.message || "Failed to rename draft", {
+        closeButton: true,
+        autoClose: 1500,
+        style: { textAlign: 'center' }
+      });
+      throw err;
+    }
   };
 
   const confirmSaveAs = async (newTitle) => {
@@ -784,6 +838,98 @@ const CreatePageSI = () => {
     }
   };
 
+  const handleSaveVersion = async () => {
+    if (versionPreview || readOnly) return;
+
+    if (userIDsRef.current.length <= 1) {
+      toast.error("Only drafts shared with more than one person can have versions saved.", {
+        closeButton: true,
+        autoClose: 2200,
+        style: { textAlign: "center" }
+      });
+      return;
+    }
+
+    if (formDataRef.current.title.trim() === "") {
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.error("Please fill in at least the title field before saving a version.", {
+        closeButton: true,
+        autoClose: 1500,
+        style: { textAlign: "center" }
+      });
+      return;
+    }
+
+    setIsSavingVersion(true);
+
+    try {
+      let activeDraftId = loadedIDRef.current;
+
+      // A version must represent exactly what is currently on screen.
+      // Persist the working copy first, but do not create history during a normal save.
+      if (!activeDraftId) {
+        const saveResult = await saveData();
+
+        if (saveResult?.duplicate) {
+          setIsDuplicateName(true);
+          toast.warn("A draft with this name already exists. Please enter a new draft name.", {
+            closeButton: true,
+            autoClose: 2000,
+            style: { textAlign: "center" }
+          });
+          return;
+        }
+
+        if (!saveResult?.ok || !saveResult?.id) {
+          throw new Error("The draft could not be saved before creating the version.");
+        }
+
+        activeDraftId = saveResult.id;
+      } else {
+        const updateResult = await updateData(userIDsRef.current);
+        if (!updateResult?.ok) {
+          throw new Error("The latest draft changes could not be saved before creating the version.");
+        }
+      }
+
+      const response = await fetch(
+        `${process.env.REACT_APP_URL}/api/draft/special/versions/${activeDraftId}`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${localStorage.getItem("token")}`
+          }
+        }
+      );
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Failed to save version");
+      }
+
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.success(`${result.label} saved successfully`, {
+        closeButton: true,
+        autoClose: 1800,
+        style: { textAlign: "center" }
+      });
+    } catch (error) {
+      console.error("Error saving version:", error);
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.error(error.message || "Failed to save version", {
+        closeButton: true,
+        autoClose: 2200,
+        style: { textAlign: "center" }
+      });
+    } finally {
+      setIsSavingVersion(false);
+    }
+  };
+
   const saveDraftName = async (newTitle) => {
     const trimmedTitle = (newTitle || "").trim();
 
@@ -1092,8 +1238,14 @@ const CreatePageSI = () => {
     try {
       const token = localStorage.getItem("token");
 
+      const loadUrl = signedOffPreview
+        ? `${process.env.REACT_APP_URL}/api/fileGenDocs/signedOffSpecial/getFile/${loadID}`
+        : versionPreview && versionNumber
+          ? `${process.env.REACT_APP_URL}/api/draft/special/versions/${loadID}/${versionNumber}`
+          : `${process.env.REACT_APP_URL}/api/draft/special/getDraft/${loadID}`;
+
       const response = await fetch(
-        `${process.env.REACT_APP_URL}/api/draft/special/getDraft/${loadID}`,
+        loadUrl,
         {
           method: "GET",
           headers: {
@@ -1111,7 +1263,9 @@ const CreatePageSI = () => {
 
       console.log(data);
 
-      const storedData = data.draft || {};
+      const storedData = signedOffPreview
+        ? data.files || {}
+        : data.draft || {};
       const readOnly = data.readOnly || false;
       const isOwner = data.isOwner || false;
       const isViewer = data.isViewer || false;
@@ -1149,7 +1303,8 @@ const CreatePageSI = () => {
       // This is what's on the server right now, so nothing is "dirty" yet.
       isDirtyRef.current = false;
 
-      setReadOnly(readOnly);
+      setReadOnly(previewOnly || Boolean(data.readOnly));
+      setVersionInfo(versionPreview ? (data.version || null) : null);
       setOwner(isOwner)
       setIsViewer(isViewer);
       setIsPublisher(isPublisher);
@@ -1217,6 +1372,7 @@ const CreatePageSI = () => {
   }, [formData]);
 
   useEffect(() => {
+    if (versionPreview) return;
     if (offlineDraft) return;
 
     if (!autoSaveInterval.current && formData.title.trim() !== "") {
@@ -1235,9 +1391,10 @@ const CreatePageSI = () => {
         console.log("🧹 Auto-save interval cleared");
       }
     };
-  }, [formData.title]);
+  }, [formData.title, versionPreview]);
 
   const autoSaveDraft = () => {
+    if (versionPreview) return;
     if (readOnly) return;
     if (formData.title.trim() === "") return; // Don't save without a valid title
 
@@ -1716,7 +1873,9 @@ const CreatePageSI = () => {
     else {
       loadData(draftId);
     }
-  }, [draftId])
+    // loadData intentionally reads the current route mode/version.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId, versionPreview, versionNumber])
 
   const createAimBulletRow = () => ({
     id: uuidv4(),
@@ -1836,6 +1995,7 @@ const CreatePageSI = () => {
   });
 
   const releaseLock = async () => {
+    if (versionPreview) return true;
     if (!loadedIDRef.current) return true;
 
     try {
@@ -1867,7 +2027,7 @@ const CreatePageSI = () => {
     setIsSaveConfirmOpen(true);
   };
 
-  const requiresSavePrompt = () => !readOnly && !!loadedIDRef.current && isDirtyRef.current;
+  const requiresSavePrompt = () => !versionPreview && !readOnly && !!loadedIDRef.current && isDirtyRef.current;
 
   // Skips the save-confirmation popup entirely: releases the lock (so the
   // document isn't left checked out) and runs the pending navigation
@@ -1948,7 +2108,7 @@ const CreatePageSI = () => {
     {
       // Even when there's nothing to save, a loaded draft still holds a
       // server-side lock that must be released before the window closes.
-      shouldCleanup: () => !readOnly && !!loadedIDRef.current,
+      shouldCleanup: () => !versionPreview && !readOnly && !!loadedIDRef.current,
       onSilentClose: (closeWindow) => { leaveWithoutPrompt(closeWindow); },
     }
   );
@@ -2023,22 +2183,32 @@ const CreatePageSI = () => {
               <FontAwesomeIcon icon={faArrowLeft} onClick={handleBack} title="Back" />
             </div>
 
+            {!versionPreview && !readOnly && userIDs.length > 1 && (
+              <div className="burger-menu-icon-risk-create-page-1">
+                {isSavingVersion ? (
+                  <FontAwesomeIcon icon={faSpinner} spin title="Saving Version" />
+                ) : (
+                  <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={handleSaveVersion} title="Save As New Version">
+                    {/* base floppy-disk, full size */}
+                    <FontAwesomeIcon icon={faSave} />
+                    {/* pen, shrunk & nudged down/right into corner */}
+                    <FontAwesomeIcon
+                      icon={faPen}
+                      transform="shrink-6 down-5 right-7"
+                      color="gray"   /* or whatever contrast you need */
+                    />
+                  </span>
+                )}
+              </div>
+            )}
+
             {!readOnly && (<div className="burger-menu-icon-risk-create-page-1">
               <FontAwesomeIcon icon={faFloppyDisk} onClick={handleSave} title="Save" />
             </div>)}
 
-            {!readOnly && (
+            {(
               <div className="burger-menu-icon-risk-create-page-1">
-                <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={openSaveAs} title="Save As">
-                  {/* base floppy-disk, full size */}
-                  <FontAwesomeIcon icon={faSave} />
-                  {/* pen, shrunk & nudged down/right into corner */}
-                  <FontAwesomeIcon
-                    icon={faPen}
-                    transform="shrink-6 down-5 right-7"
-                    color="gray"   /* or whatever contrast you need */
-                  />
-                </span>
+                <FontAwesomeIcon icon={faCopy} onClick={openSaveAs} title="Create Copy" />
               </div>
             )}
 
@@ -2079,7 +2249,7 @@ const CreatePageSI = () => {
           <div className="spacer"></div>
 
           {/* Container for right-aligned icons */}
-          <TopBarDD refreshable={true} canIn={canIn} access={access} menu={"1"} create={true} loadOfflineDraft={loadOfflineData} onHome={handleHomeNav} refreshable={false} />
+          <TopBarDD canIn={canIn} access={access} menu={"1"} create={true} loadOfflineDraft={loadOfflineData} onHome={handleHomeNav} refreshable={false} />
         </div>
 
         {(isViewer && readOnly) && (<div className="input-row">
@@ -2089,7 +2259,18 @@ const CreatePageSI = () => {
         </div>)}
 
         <div className={`scrollable-box`} ref={scrollBoxRef}>
-          {(!isViewer && readOnly && !inApproval) && (<div className="input-row">
+          {versionPreview && versionInfo && (
+            <div className="input-row">
+              <div
+                className="input-box-aim-cp"
+                style={{ marginBottom: "10px", background: "#002060", color: "white", fontWeight: "bold" }}
+              >
+                Viewing {versionInfo.label} - read only historical version.
+              </div>
+            </div>
+          )}
+
+          {(!signedOffPreview && !versionPreview && !isViewer && readOnly && !inApproval) && (<div className="input-row">
             <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#CB6F6F", color: "white", fontWeight: "bold" }}>
               The draft is in Read Only Mode as the following user is modifying the draft: {lockUser}
             </div>
@@ -2107,10 +2288,22 @@ const CreatePageSI = () => {
                   value={formData.title}
                   onChange={handleInputChange}
                   placeholder="Title of your document (e.g., Surface TMM Pre-Use Checklist)"
-                  readOnly={readOnly}
+                  readOnly={readOnly || Boolean(loadedID)}
                 />
                 <span className="type-create-page" style={{ width: "10%" }}>{formData.documentType}</span>
               </div>
+              {Boolean(loadedID) && !readOnly && (
+                <button
+                  type="button"
+                  className="generate-button font-fam"
+                  onClick={openRenamePopup}
+                  disabled={readOnly}
+                  title={readOnly ? "This draft is currently locked" : "Rename this draft"}
+                  style={{ marginTop: "15px" }}
+                >
+                  Rename Document
+                </button>
+              )}
             </div>
           </div>
 
@@ -2361,6 +2554,16 @@ const CreatePageSI = () => {
         </ul>
       )}
       {isSaveAsModalOpen && (<SaveAsPopup saveAs={confirmSaveAs} onClose={closeSaveAs} current={formData.title} type={type} userID={userID} create={false} special={true} />)}
+      {isRenamePopupOpen && (
+        <RenameDraftPopup
+          onClose={closeRenamePopup}
+          onRename={handleRenameDraft}
+          current={formData.title}
+          draftId={loadedIDRef.current || loadedID}
+          siblingDraftsRoute={`${process.env.REACT_APP_URL}/api/draft/special/drafts/${userID}`}
+          titleField="title"
+        />
+      )}
       {generatePopup && (<GenerateDraftPopup deleteDraft={handleGeneratePDF} closeModal={closeGenerate} cancel={cancelGenerate} />)}
       {draftNote && (<DraftPopup closeModal={closeDraftNote} />)}
       {showWorkflow && (<DocumentWorkflow setClose={closeWorkflow} />)}

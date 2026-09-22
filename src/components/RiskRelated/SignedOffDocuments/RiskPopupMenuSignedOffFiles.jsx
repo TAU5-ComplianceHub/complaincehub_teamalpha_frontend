@@ -38,6 +38,24 @@ const RiskPopupMenuSignedOffFiles = ({ isOpen, setHoveredFileId, openDownloadMod
         return verRoute;
     }
 
+    const getVerRoutePreview = () => {
+        let verRoute;
+
+        switch (typeDoc) {
+            case "ibra":
+                verRoute = `/FrontendDMS/rmsSignedOffPreview/IBRA/${file._id}`;
+                break;
+            case "blra":
+                verRoute = `/FrontendDMS/rmsSignedOffPreview/BLRA/${file._id}`;
+                break;
+            case "jra":
+                verRoute = `/FrontendDMS/rmsSignedOffPreview/JRA/${file._id}`;
+                break;
+        }
+
+        return verRoute;
+    }
+
     return (
         <div className="popup-menu-container-pub-files">
             {isOpen && (
@@ -53,6 +71,9 @@ const RiskPopupMenuSignedOffFiles = ({ isOpen, setHoveredFileId, openDownloadMod
                             <li onClick={() => review(file._id)}>Review</li>
                         </ul>
                     )}
+                    <ul>
+                        <li onClick={() => navigate(`${getVerRoutePreview()}`)}>Preview</li>
+                    </ul>
                     <ul>
                         <li onClick={() => navigate(`${getVerRoute()}`)}>Version History</li>
                     </ul>

@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import axios from "axios";
+import { saveAs } from "file-saver";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
     faChevronDown,
@@ -146,6 +148,54 @@ const STATUS_STYLES = {
 // field that ever needed a follow-up task actually has one scheduled.
 export const fieldStillNeedsScheduling = (field) => needsScheduleButton(field);
 
+// Read-only display for the task-level "PDF Evidence" attachment (desktop-
+// only, see ActionFieldsPopulateBox.jsx). Same download mechanics as
+// ActionFieldFileValue's "file" branch - fetch the bytes with the auth
+// header attached, then hand them to file-saver - just pointed at the
+// task's own download endpoint instead of an action field's, since
+// pdfEvidence lives directly on the WorkOrderTask rather than inside any
+// one action field.
+const PdfEvidenceValue = ({ taskId, pdfEvidence }) => {
+    const downloadUrl = (pdfEvidence && taskId)
+        ? `${process.env.REACT_APP_URL}/api/workOrderTasks/${taskId}/pdf-evidence/download`
+        : null;
+
+    const handleDownload = async () => {
+        if (!downloadUrl || !pdfEvidence) return;
+        try {
+            const storedToken = localStorage.getItem("token");
+            const response = await axios.get(downloadUrl, {
+                headers: { Authorization: `Bearer ${storedToken}` },
+                responseType: "blob",
+            });
+            saveAs(response.data, pdfEvidence.fileName || "PDF Evidence.pdf");
+        } catch {
+            // Same as ActionFieldFileValue - no toast context here, a
+            // failed download simply does nothing and the user can retry.
+        }
+    };
+
+    return (
+        <button
+            type="button"
+            title="Click to download"
+            onClick={handleDownload}
+            style={{
+                padding: 0,
+                border: "none",
+                background: "transparent",
+                color: "#0B5ED7",
+                textDecoration: "underline",
+                cursor: "pointer",
+                fontSize: "14px",
+                textAlign: "left",
+            }}
+        >
+            {pdfEvidence.fileName || "PDF Evidence.pdf"}
+        </button>
+    );
+};
+
 const ActionFieldsPreviewBox = ({
     taskId,
     actionFields = [],
@@ -156,6 +206,7 @@ const ActionFieldsPreviewBox = ({
     workOrderTitle = "",
     priority = "",
     workOrderAttachments = [],
+    pdfEvidence = null,
     responsibleSignature = null,
     onScheduleTask = () => { },
     onTaskAdded = () => { },
@@ -352,6 +403,23 @@ const ActionFieldsPreviewBox = ({
                                     </tr>
                                 );
                             })}
+
+                            {/* Task-level "PDF Evidence" - desktop-only,
+                                optional (see PUT :id/populate), so this row
+                                only renders at all when the task actually
+                                has one on record. Sits directly above the
+                                signature row, same position as it has on
+                                the editable Populate Work Order screen. */}
+                            {pdfEvidence && (
+                                <tr>
+                                    <th scope="row" className="jra-info-table-header" style={{ whiteSpace: "pre-wrap" }}>
+                                        PDF Evidence
+                                    </th>
+                                    <td colSpan={1 + (showStatusColumn ? 1 : 0) + (showScheduleColumn ? 1 : 0)}>
+                                        <PdfEvidenceValue taskId={taskId} pdfEvidence={pdfEvidence} />
+                                    </td>
+                                </tr>
+                            )}
 
                             {/* Responsible person's sign-off - always the
                                 final row, regardless of how many action

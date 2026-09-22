@@ -6,6 +6,7 @@ import { faSpinner, faTrash, faCircleLeft, faPenToSquare, faRotateLeft, faArrows
 import DeleteDraftPopup from "../Popups/DeleteDraftPopup";
 import TopBar from "../Notifications/TopBar";
 import { toast, ToastContainer } from "react-toastify";
+import DraftOptionsPopup from "../Popups/DraftOptionsPopup";
 
 const FTSTemplatesDraftsPage = () => {
     const [drafts, setDrafts] = useState([]);
@@ -21,6 +22,7 @@ const FTSTemplatesDraftsPage = () => {
     const [isLoadingDraft, setIsLoadingDraft] = useState(false);
     const [isSidebarVisible, setIsSidebarVisible] = useState(false);
     const [userID, setUserID] = useState('');
+    const [openDraftMenuId, setOpenDraftMenuId] = useState(null);
     const navigate = useNavigate();
     const { type } = useParams();
 
@@ -51,6 +53,7 @@ const FTSTemplatesDraftsPage = () => {
                 loadRoute: `${process.env.REACT_APP_URL}/api/ftsDrafts/templates/drafts/${userID}`,
                 deleteRoute: (draftId) => `${process.env.REACT_APP_URL}/api/ftsDrafts/templates/delete/${draftId}`,
                 rowClickRoute: (draftId) => `/FrontendDMS/ftsCreateTemplate/template/${draftId}`,
+                versionHistoryRoute: (draftId) => `/FrontendDMS/ftsDraftHistory/template/${draftId}`,
             },
 
             default: {
@@ -85,6 +88,12 @@ const FTSTemplatesDraftsPage = () => {
 
     const getDraftStatus = (item) => {
         const userIDs = Array.isArray(item?.userIDs) ? item.userIDs : [];
+        if (item.isWithdrawn) {
+            return "Published - Withdrawn"
+        }
+        if (item.isRejected) {
+            return "Published - Rejected"
+        }
         return userIDs.length > 1 ? "In Collaboration" : "In Development";
     };
 
@@ -456,7 +465,26 @@ const FTSTemplatesDraftsPage = () => {
                                                     <td style={{ fontFamily: "Arial", textAlign: "center" }}>
                                                         {index + 1}
                                                     </td>
-                                                    <td style={{ fontFamily: "Arial" }}>{item.formData.title}</td>
+                                                    <td
+                                                        style={{ fontFamily: "Arial", cursor: "pointer" }}
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            setOpenDraftMenuId((current) => current === item._id ? null : item._id);
+                                                        }}
+                                                    >
+                                                        <div className="draft-options-anchor">
+                                                            <span>{item.formData.title}</span>
+                                                            <DraftOptionsPopup
+                                                                isOpen={openDraftMenuId === item._id}
+                                                                draft={item}
+                                                                openDraftRoute={pageConfig.rowClickRoute(item._id)}
+                                                                versionHistoryRoute={pageConfig.versionHistoryRoute
+                                                                    ? pageConfig.versionHistoryRoute(item._id)
+                                                                    : null}
+                                                                onClose={() => setOpenDraftMenuId(null)}
+                                                            />
+                                                        </div>
+                                                    </td>
                                                     <td style={{ textAlign: "center", fontFamily: "Arial", ...getStatusStyle(getDraftStatus(item)) }}>
                                                         {getDraftStatus(item)}
                                                     </td>

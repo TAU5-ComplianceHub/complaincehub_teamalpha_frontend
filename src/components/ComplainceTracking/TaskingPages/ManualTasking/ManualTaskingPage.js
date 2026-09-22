@@ -57,7 +57,7 @@ const ALL_COLUMNS = [
     { id: "allocatedBy", title: "Originator", views: "both", collapsed: true, collapsedFor: "allocator" },
     { id: "allocatedDate", title: "Date Created", views: "both", collapsed: true, collapsedFor: "both" },
     { id: "area", title: "Area", views: "both", collapsed: true, collapsedFor: "allocator" },
-    { id: "discipline", title: "Discipline", views: "both", collapsed: true, collapsedFor: "allocator" },
+    { id: "discipline", title: "Department", views: "both", collapsed: true, collapsedFor: "allocator" },
     { id: "taskType", title: "Type", views: "both", collapsed: false },
     { id: "category", title: "Source", views: "both", collapsed: true, collapsedFor: "both" },
     { id: "taskTitle", title: "Title", views: "both", collapsed: false },
@@ -1737,45 +1737,12 @@ const ManualTaskingPage = () => {
                 const isReopening = reopeningTaskIds.has(row._id);
                 const isCancelled = row.status === "Cancelled";
 
-                // In closedOut view: check if user can reopen
-                // _isAllocator is set by the /closed endpoint; if not present, fall back to view
-                const canReopen = view === "closedOut"
-                    ? (row._isAllocator === true)
-                    : view === "allocator";
-
-                // ── Closed-out view — show reopen control or read-only badge ─────────────
+                // ── Closed-out view — always a read-only "Closed Out" badge ──────────────
+                // The reopen action now lives in the Action column as a restore icon.
                 if (view === "closedOut") {
-                    if (!canReopen) {
-                        // Responsible-only user: read-only closed cell
-                        return (
-                            <td key="closeStatus" className="procCent" style={{ fontSize: "14px", backgroundColor: "#7EAC87", color: "#fff", borderLeft: "1px solid white", borderRight: "1px solid white" }}>
-                                Closed Out
-                            </td>
-                        );
-                    }
-                    // Allocator (or both): interactive reopen checkbox
-                    // A sub-task cannot be reopened while its main task is still closed out.
-                    const isBlockedByParent = !!row.isSubTask && !!row._parentTaskClosed;
-
                     return (
-                        <td key="closeStatus" className="procCent" style={{ fontSize: "14px" }}>
-                            <input type="checkbox" className="checkbox-inp-abbr"
-                                checked={true}
-                                disabled={isReopening || isBlockedByParent}
-                                title={
-                                    isBlockedByParent
-                                        ? "Main task has been closed out"
-                                        : "Click to reopen this task"
-                                }
-                                style={{
-                                    cursor: (isReopening || isBlockedByParent) ? "not-allowed" : "pointer",
-                                    opacity: (isReopening || isBlockedByParent) ? 0.4 : 1,
-                                }}
-                                onChange={() => {
-                                    if (isBlockedByParent) return;
-                                    openReopenTaskPopup(row);
-                                }}
-                            />
+                        <td key="closeStatus" className="procCent" style={{ fontSize: "14px", backgroundColor: "#7EAC87", color: "#fff", borderLeft: "1px solid white", borderRight: "1px solid white" }}>
+                            Closed Out
                         </td>
                     );
                 }
@@ -1902,6 +1869,35 @@ const ManualTaskingPage = () => {
                                         <FontAwesomeIcon icon={faFilePdf} />
                                     </button>
                                 )}
+                                {/* Restore/reopen — allocator (or both) only. A sub-task can't be
+                                    reopened while its main task is still closed out. */}
+                                {row._isAllocator === true && (() => {
+                                    const isReopening = reopeningTaskIds.has(row._id);
+                                    const isBlockedByParent = !!row.isSubTask && !!row._parentTaskClosed;
+                                    return (
+                                        <button
+                                            type="button"
+                                            className="rca-action-btn"
+                                            title={
+                                                isBlockedByParent
+                                                    ? "Main task has been closed out"
+                                                    : "Restore (reopen) this task"
+                                            }
+                                            style={{
+                                                marginLeft: "5px",
+                                                cursor: (isReopening || isBlockedByParent) ? "not-allowed" : "pointer",
+                                                opacity: (isReopening || isBlockedByParent) ? 0.4 : 1,
+                                            }}
+                                            disabled={isReopening || isBlockedByParent}
+                                            onClick={() => {
+                                                if (isBlockedByParent) return;
+                                                openReopenTaskPopup(row);
+                                            }}
+                                        >
+                                            <FontAwesomeIcon icon={faClockRotateLeft} />
+                                        </button>
+                                    );
+                                })()}
                             </>
                         ) : (
                             <>

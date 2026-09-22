@@ -5,14 +5,23 @@ import { faCaretLeft, faCaretRight, faDownload, faFolderOpen, faTrash, faSort, f
 import { jwtDecode } from 'jwt-decode';
 import TopBar from "../../Notifications/TopBar";
 import DeletePopup from "../../FileInfo/DeletePopup";
+import StartReviewPopup from "../../Popups/StartReviewPopup";
+import SignedOffDownloadConfirmPopup from "./SignedOffDownloadConfirmPopup";
 import RiskPopupMenuSignedOffFiles from "./RiskPopupMenuSignedOffFiles";
+import DownloadPopupMenuSignedOffFiles from "./DownloadPopupMenuSignedOffFiles";
 import { toast, ToastContainer } from "react-toastify";
+import { getCurrentUser, isAdmin, canIn } from "../../../utils/auth";
 
 const SignedOffBLRA = () => {
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "RMS", ["systemAdmin"]);
+
     const [files, setFiles] = useState([]);
     const [error, setError] = useState(null);
     const [token, setToken] = useState('');
     const [hoveredFileId, setHoveredFileId] = useState(null);
+    const [hoveredDownloadId, setHoveredDownloadId] = useState(null);
+    const [downloadRequest, setDownloadRequest] = useState(null);
     const [loading, setLoading] = useState(false);
     const [userID, setUserID] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
@@ -35,10 +44,24 @@ const SignedOffBLRA = () => {
 
     const navigate = useNavigate();
 
-    const reviewDocument = async (fileID) => {
-        let route = `${process.env.REACT_APP_URL}/api/riskGenerate/reviewSOBLRA/${fileID}`
+    const [fileToReview, setFileToReview] = useState(null);
+    const [reviewLoading, setReviewLoading] = useState(false);
+
+    const openReviewPopup = (id) => {
+        setFileToReview(id);
+        setHoveredFileId(null);
+    };
+
+    const closeReviewPopup = () => {
+        if (!reviewLoading) setFileToReview(null);
+    };
+
+    const startReview = async () => {
+        if (!fileToReview || reviewLoading) return;
+        let route = `${process.env.REACT_APP_URL}/api/riskGenerate/reviewSOBLRA/${fileToReview}`
 
         try {
+            setReviewLoading(true);
             const response = await fetch(`${route}`, {
                 method: 'POST',
                 headers: {
@@ -49,6 +72,7 @@ const SignedOffBLRA = () => {
                 throw new Error(response.error || 'Failed to upload file');
             }
 
+            setFileToReview(null);
             toast.success("Document Version Created in Pending Sign Off", {
                 closeButton: false,
                 autoClose: 1500,
@@ -59,6 +83,8 @@ const SignedOffBLRA = () => {
             })
         } catch (error) {
             setLoading(false);
+        } finally {
+            setReviewLoading(false);
         }
     }
 
@@ -98,9 +124,51 @@ const SignedOffBLRA = () => {
     const getStatus = (s) => (s?.toLowerCase() === 'published' ? 'Signed Off' : s);
 
     useEffect(() => { const t = localStorage.getItem('token'); if (t) { setToken(t); setUserID(jwtDecode(t).userId); } }, [navigate]);
-    useEffect(() => { if (token) fetchFiles(); }, [token]);
-    const fetchFiles = async () => { try { const r = await fetch(`${process.env.REACT_APP_URL}/api/fileGenDocs/signedOffBLRA/${userID}`); if (!r.ok) throw new Error('Failed'); const d = await r.json(); setFiles(d.files); console.log(d.files) } catch (e) { setError(e.message); } };
+    useEffect(() => { if (token) fetchFiles(); }, [token, isSystemAdmin]);
+    const fetchFiles = async () => {
+        const route = isSystemAdmin
+            ? `${process.env.REACT_APP_URL}/api/fileGenDocs/signedOffBLRA/${userID}?isAdmin=true`
+            : `${process.env.REACT_APP_URL}/api/fileGenDocs/signedOffBLRA/${userID}`;
+        try { const r = await fetch(route); if (!r.ok) throw new Error('Failed'); const d = await r.json(); setFiles(d.files); console.log(d.files) } catch (e) { setError(e.message); }
+    };
     const downloadFile = async (fileId, fileName) => { try { setLoading(true); const r = await fetch(`${process.env.REACT_APP_URL}/api/file/download/${fileId}`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error('Failed'); const blob = await r.blob(); const url = window.URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', fileName || 'doc.pdf'); document.body.appendChild(link); link.click(); link.parentNode.removeChild(link); } catch (e) { alert('Error'); } finally { setLoading(false); } };
+    // TODO: route to be provided later — placeholder handler for downloading the latest Word document
+    const downloadWordFile = async (fileName, cleanFileName) => {
+        try {
+            setLoading(true);
+            const r = await fetch(`${process.env.REACT_APP_URL}/api/file/generatedProcedureHistory`,
+                {
+                    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fileName })
+                });
+
+            if (!r.ok) throw new Error('Failed');
+            const blob = await r.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url; link.setAttribute('download', cleanFileName || 'document.docx');
+            document.body.appendChild(link);
+            link.click();
+            link.parentNode.removeChild(link);
+        } catch (e) {
+            alert('Error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const openDownloadConfirm = (file, type) => { setHoveredDownloadId(null); setDownloadRequest({ file, type }); };
+    const closeDownloadConfirm = () => { if (!loading) setDownloadRequest(null); };
+    const confirmDownloadAction = () => {
+        if (!downloadRequest) return;
+        const { file, type } = downloadRequest;
+        if (type === "word") {
+            downloadWordFile(file.azureFileName, file.fileName);
+        } else {
+            downloadFile(file.dmsId._id, file.dmsId.fileName);
+        }
+        setDownloadRequest(null);
+    };
     const removeFileExtension = (n) => n.replace(/\.[^/.]+$/, "");
 
     // Excel Logic
@@ -152,7 +220,7 @@ const SignedOffBLRA = () => {
 
     const allColumns = [
         { id: "nr", title: "Nr", thClass: "gen-th ibraGenNr", tdClass: "cent-values-gen gen-point", td: (f, i) => i + 1 },
-        { id: "name", title: "Document Name", thClass: "gen-th ibraGenFN", tdClass: "gen-point", onCellClick: (f) => setHoveredFileId(hoveredFileId === f._id ? null : f._id), td: (f) => (<div className="popup-anchor"><span>{(f.formData.title)}</span>{(hoveredFileId === f._id) && (<RiskPopupMenuSignedOffFiles file={f} typeDoc={"blra"} risk={false} isOpen={true} openDownloadModal={downloadFile} setHoveredFileId={setHoveredFileId} id={f._id} review={reviewDocument} />)}</div>) },
+        { id: "name", title: "Document Name", thClass: "gen-th ibraGenFN", tdClass: "gen-point", onCellClick: (f) => setHoveredFileId(hoveredFileId === f._id ? null : f._id), td: (f) => (<div className="popup-anchor"><span>{(f.formData.title)}</span>{(hoveredFileId === f._id) && (<RiskPopupMenuSignedOffFiles file={f} typeDoc={"blra"} risk={false} isOpen={true} openDownloadModal={downloadFile} setHoveredFileId={setHoveredFileId} id={f._id} review={openReviewPopup} />)}</div>) },
         { id: "version", title: "Version", thClass: "gen-th ibraGenVer", tdClass: "cent-values-gen gen-point", td: (f) => f.formData.version },
         { id: "status", title: "Document Status", thClass: "gen-th ibraGenStatus", tdClass: "cent-values-gen gen-point", td: (f) => getStatus(f.documentStatus) },
         { id: "firstPublishedBy", title: "First Published By", thClass: "gen-th ibraGenPB", tdClass: "cent-values-gen gen-point", td: (f) => f.publisher.username },
@@ -166,12 +234,23 @@ const SignedOffBLRA = () => {
             tdClass: "cent-values-gen gen-point",
             td: (f) => (
                 <div className="action-buttons-fi">
-                    <button
-                        className="download-button-fi col-but-res"
-                        onClick={() => downloadFile(f.dmsId._id, f.dmsId.fileName)}
-                    >
-                        <FontAwesomeIcon icon={faDownload} title="Download" />
-                    </button>
+                    <div className="popup-anchor">
+                        <button
+                            className="download-button-fi col-but-res"
+                            onClick={() => setHoveredDownloadId(hoveredDownloadId === f._id ? null : f._id)}
+                        >
+                            <FontAwesomeIcon icon={faDownload} title="Download" />
+                        </button>
+                        {hoveredDownloadId === f._id && (
+                            <DownloadPopupMenuSignedOffFiles
+                                isOpen={true}
+                                setHoveredDownloadId={setHoveredDownloadId}
+                                file={f}
+                                onDownloadPDF={() => openDownloadConfirm(f, "pdf")}
+                                onDownloadWord={() => openDownloadConfirm(f, "word")}
+                            />
+                        )}
+                    </div>
                     <button
                         className="delete-button-fi col-but"
                         onClick={() => fileDelete(f._id, f.formData.title)}
@@ -507,6 +586,22 @@ const SignedOffBLRA = () => {
 
             <ToastContainer />
             {isModalOpen && (<DeletePopup closeModal={closeModal} deleteFile={deleteFile} isTrashView={false} loading={loading} selectedFileName={selectedFileName} />)}
+            {downloadRequest && (
+                <SignedOffDownloadConfirmPopup
+                    closeDownloadModal={closeDownloadConfirm}
+                    confirmDownload={confirmDownloadAction}
+                    downloadFileName={downloadRequest.type === "word" ? downloadRequest.file.fileName : downloadRequest.file.dmsId.fileName}
+                    downloadType={downloadRequest.type}
+                    loading={loading}
+                />
+            )}
+            {fileToReview && (
+                <StartReviewPopup
+                    startReview={startReview}
+                    cancel={closeReviewPopup}
+                    loading={reviewLoading}
+                />
+            )}
         </div>
     );
 };

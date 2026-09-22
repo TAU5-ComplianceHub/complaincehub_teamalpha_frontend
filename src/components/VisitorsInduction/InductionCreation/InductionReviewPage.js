@@ -6,7 +6,7 @@ import AbbreviationTable from "../../CreatePage/AbbreviationTable";
 import 'react-toastify/dist/ReactToastify.css';
 import { toast, ToastContainer } from "react-toastify";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faArrowLeft, faShareNodes, faUpload, faRotateRight, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faInfo, faL, faMagicWandSparkles, faEye, faCheckCircle, faBan } from '@fortawesome/free-solid-svg-icons';
+import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faArrowLeft, faShareNodes, faUpload, faRotateRight, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faInfo, faL, faMagicWandSparkles, faEye, faCheckCircle, faBan, faTimesCircle, faCopy } from '@fortawesome/free-solid-svg-icons';
 import TopBarDD from "../../Notifications/TopBarDD";
 import { v4 as uuidv4 } from "uuid";
 import { canIn, getCurrentUser } from "../../../utils/auth";
@@ -22,6 +22,8 @@ import ApproversPopup from "./ApproversPopup";
 import RepublishInductionConfirmation from "./RepublishInductionConfirmation";
 import SavingInProgress from "../../DocumentCreationPages/SavingInProgress";
 import RemoveFromApprovalPopup from "../../Popups/RemoveFromApprovalPopup";
+import RejectReason from "../../Popups/RejectReason";
+import RejectReasonView from "../../Popups/RejectReasonView";
 
 const InductionReviewPage = () => {
   const navigate = useNavigate();
@@ -54,6 +56,11 @@ const InductionReviewPage = () => {
   const [removeApprovalState, setRemoveApprovalState] = useState(false);
   const [removingApproval, setRemovingApproval] = useState(false);
   const [canRemove, setCanRemove] = useState(false);
+  const [rejectState, setRejectState] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [isRejected, setIsRejected] = useState(false);
+  const [showRejectReasonView, setShowRejectReasonView] = useState(false);
+  const [rejectionInfo, setRejectionInfo] = useState({ rejectorName: "", rejectDate: null, rejectionMessage: "" });
 
   const readOnlyRef = useRef(false);
 
@@ -601,6 +608,63 @@ const InductionReviewPage = () => {
     }
   };
 
+  const handleRejectClick = () => {
+    setRejectState(true);
+  };
+
+  const closeRejectPopup = () => {
+    setRejectState(false);
+  };
+
+  const rejectDraft = async (message) => {
+    setRejecting(true);
+
+    try {
+      const response = await fetch(`${process.env.REACT_APP_URL}/api/visitorDrafts/reject-publishDoc`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({ draftID: fileID, message }),
+      });
+
+      if (!response.ok) throw new Error("Failed to reject document");
+
+      toast.success(`Successfully Rejected.`, {
+        closeButton: true,
+        autoClose: 1500, // 1.5 seconds
+        style: {
+          textAlign: 'center'
+        }
+      });
+
+      if (autoSaveInterval.current) {
+        clearInterval(autoSaveInterval.current);
+        autoSaveInterval.current = null;
+      }
+
+      setIsRejected(true);
+      setReadOnly(true);
+      setRejectState(false);
+
+      setTimeout(() => {
+        navigate(-1);
+      }, 1500);
+    } catch (error) {
+      console.error("Error rejecting document:", error);
+      toast.error("Failed to reject document", {
+        closeButton: true,
+        autoClose: 1500,
+        style: {
+          textAlign: 'center'
+        }
+      });
+    } finally {
+      setRejecting(false);
+    }
+  };
+
   const removeFromApprovalProcess = async () => {
     const dataToStore = {
       draftID: fileID
@@ -675,8 +739,15 @@ const InductionReviewPage = () => {
 
       setInApproval(Boolean(storedData.statusApproval));
       const canRemove = storedData.canRemove || false;
+      const isRejectedFromServer = canRemove
+        ? false
+        : Boolean(storedData.isRejected);
+      const isRejectedForOwner = canRemove && Boolean(storedData.isRejected);
 
       if (storedData.statusApproval && storedData.readOnly) {
+        enableReadOnlyImmediately();
+      }
+      else if (isRejectedFromServer) {
         enableReadOnlyImmediately();
       } else {
         setReadOnly(storedData.readOnly);
@@ -684,6 +755,17 @@ const InductionReviewPage = () => {
 
       setShowPublishLoader(false);
       setCanRemove(canRemove);
+      if (isRejectedForOwner) {
+        // The rejection view takes priority over the reshare popup. The
+        // reshare decision (if any) happens after the owner clicks
+        // "Review Document" — see resolveRejectedDraft.
+        setRejectionInfo({
+          rejectorName: storedData.rejectorUser || "N/A",
+          rejectDate: storedData.rejectDate || null,
+          rejectionMessage: storedData.rejectionMessage || "",
+        });
+        setShowRejectReasonView(true);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
       setShowPublishLoader(false);
@@ -997,6 +1079,54 @@ const InductionReviewPage = () => {
     setPreview(true);
   }
 
+  const formatRejectDate = (dateValue) => {
+    if (!dateValue) return "N/A";
+    const parsed = new Date(dateValue);
+    if (isNaN(parsed.getTime())) return "N/A";
+
+    const datePart = parsed.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    const timePart = parsed.toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+
+    return `${datePart}`;
+  };
+
+  const resolveRejectedDraft = async () => {
+    try {
+      const response = await fetch(`${process.env.REACT_APP_URL}/api/visitorDrafts/resolveRejected-publishedDoc/${fileID}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
+      });
+
+      if (!response.ok) throw new Error("Failed to update draft");
+
+      setShowRejectReasonView(false);
+      setIsRejected(false);
+      setReadOnly(false);
+    } catch (error) {
+      console.error("Error resolving rejected draft:", error);
+      toast.error("Failed to update draft", {
+        closeButton: true,
+        autoClose: 1500,
+        style: {
+          textAlign: 'center'
+        }
+      });
+    }
+  };
+
+  const handleReviewRejectedDraft = () => resolveRejectedDraft();
+
   return (
     <div className="file-create-container">
       {isSidebarVisible && (
@@ -1046,16 +1176,11 @@ const InductionReviewPage = () => {
                   <FontAwesomeIcon icon={faFloppyDisk} onClick={handleSave} title="Save" />
                 </div>
 
-                <div className="burger-menu-icon-risk-create-page-1">
-                  <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={openSaveAs} title="Save As">
-                    <FontAwesomeIcon icon={faSave} />
-                    <FontAwesomeIcon
-                      icon={faPen}
-                      transform="shrink-6 down-5 right-7"
-                      color="gray"
-                    />
-                  </span>
-                </div>
+                {(
+                  <div className="burger-menu-icon-risk-create-page-1">
+                    <FontAwesomeIcon icon={faCopy} onClick={openSaveAs} title="Create Copy" />
+                  </div>
+                )}
 
                 <div className="burger-menu-icon-risk-create-page-1">
                   <FontAwesomeIcon icon={faRotateLeft} onClick={undoLastChange} title="Undo" />
@@ -1073,7 +1198,11 @@ const InductionReviewPage = () => {
                   <FontAwesomeIcon icon={faCheckCircle} onClick={handleApproveClick} className={`${(!loadedID) ? "disabled-share" : ""}`} title="Approve Draft" />
                 </div>)}
 
-                {canRemove && inApproval && (<div className="burger-menu-icon-risk-create-page-1">
+                {(inApproval) && !readOnly && canIn(access, "TMS", ["systemAdmin", "contributor"]) && (<div className="burger-menu-icon-risk-create-page-1">
+                  <FontAwesomeIcon style={{ color: "#CB6F6F" }} icon={faTimesCircle} className={`${(!loadedID) ? "disabled-share" : ""}`} onClick={handleRejectClick} title="Reject Document" />
+                </div>)}
+
+                {false && canRemove && inApproval && (<div className="burger-menu-icon-risk-create-page-1">
                   <FontAwesomeIcon icon={faBan} onClick={openRemoveApproval} title="Remove From Approval Process" style={{ color: "#CB6F6F" }} />
                 </div>)}
               </>
@@ -1085,6 +1214,12 @@ const InductionReviewPage = () => {
           <TopBarDD refreshable={false} canIn={canIn} access={access} menu={"1"} create={true} />
         </div>
 
+        {isRejected && (<div className="input-row">
+          <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#CB6F6F", color: "white", fontWeight: "bold" }}>
+            This document is in Read Only Mode as it has been rejected and requires document owner intervention.
+          </div>
+        </div>)}
+
         <div className={`scrollable-box`}>
           {showPublishLoader && (
             <div className="file-info-loading" role="status" aria-live="polite" aria-label="Loading">
@@ -1094,7 +1229,7 @@ const InductionReviewPage = () => {
           )}
           {!showPublishLoader && (
             <>
-              {readOnly && (<div className="input-row">
+              {readOnly && !isRejected && (<div className="input-row">
                 <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#CB6F6F", color: "white" }}>
                   <strong>Read-only mode:</strong> This document is currently in its publishing phase and cannot be edited at this time.
                 </div>
@@ -1229,10 +1364,19 @@ const InductionReviewPage = () => {
           loading={removingApproval}
         />
       )}
+      {rejectState && (<RejectReason isOpen={rejectState} onClose={closeRejectPopup} onSubmit={rejectDraft} loading={rejecting} />)}
       {retakeConfirmation && (<RepublishInductionConfirmation closeModal={cancelRetakeConfirmation} normalPublish={cancelRetakeConfirmation} retakeInduction={confirmRetakeConfirmation} />)}
       <ToastContainer />
       {isSaving && (
         <SavingInProgress />
+      )}
+      {showRejectReasonView && (
+        <RejectReasonView
+          rejectorName={rejectionInfo.rejectorName}
+          rejectDate={formatRejectDate(rejectionInfo.rejectDate)}
+          rejectionReason={rejectionInfo.rejectionMessage}
+          reviewDocument={handleReviewRejectedDraft}
+        />
       )}
     </div>
   );

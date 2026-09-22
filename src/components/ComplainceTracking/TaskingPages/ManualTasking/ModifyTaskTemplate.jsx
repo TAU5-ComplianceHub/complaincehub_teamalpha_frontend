@@ -257,7 +257,7 @@ const ModifyTaskTemplate = ({ onClose, onTaskAdded, data }) => {
                                 <div className="ibra-popup-page-column-half">
                                     <div className="cea-popup-page-component-wrapper">
                                         <div className="ibra-popup-page-form-group">
-                                            <label>Discipline</label>
+                                            <label>Department</label>
                                             <div className="ibra-popup-page-select-container">
                                                 <select
                                                     className="ibra-popup-page-select"
@@ -265,7 +265,7 @@ const ModifyTaskTemplate = ({ onClose, onTaskAdded, data }) => {
                                                     onChange={(e) => setDiscipline(e.target.value)}
                                                 >
                                                     <option value="">
-                                                        {"Select Discipline"}
+                                                        {"Select Department"}
                                                     </option>
                                                     {disciplineOptions.map((d) => (
                                                         <option key={d.department} value={d.department}>{d.department}</option>

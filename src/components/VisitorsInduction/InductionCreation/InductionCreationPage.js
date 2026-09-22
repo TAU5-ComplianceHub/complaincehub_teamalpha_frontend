@@ -7,10 +7,11 @@ import AbbreviationTable from "../../CreatePage/AbbreviationTable";
 import 'react-toastify/dist/ReactToastify.css';
 import { toast, ToastContainer } from "react-toastify";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faArrowLeft, faShareNodes, faUpload, faRotateRight, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faInfo, faL, faMagicWandSparkles, faEye, faCheckCircle, faBan } from '@fortawesome/free-solid-svg-icons';
+import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faArrowLeft, faShareNodes, faUpload, faRotateRight, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faInfo, faL, faMagicWandSparkles, faEye, faCheckCircle, faBan, faCopy, faTimesCircle } from '@fortawesome/free-solid-svg-icons';
 import { faFolderOpen as faFolderOpenSolid } from "@fortawesome/free-regular-svg-icons";
 import TopBarDD from "../../Notifications/TopBarDD";
 import SaveAsPopup from "../../Popups/SaveAsPopup";
+import RenameDraftPopup from "../../Popups/RenameDraftPopup";
 import GenerateDraftPopup from "../../Popups/GenerateDraftPopup";
 import DraftPopup from "../../Popups/DraftPopup";
 import DocumentWorkflow from "../../Popups/DocumentWorkflow";
@@ -31,9 +32,13 @@ import SaveConfirmationPopup from "../../CreatePage/SaveConfirmationPopup";
 import SavingInProgress from "../../DocumentCreationPages/SavingInProgress";
 import { useTauriCloseGuard } from "../../../utils/useTauriCloseGuard";
 import RemoveFromApprovalPopup from "../../Popups/RemoveFromApprovalPopup";
+import ReshareDraftPopup from "../../Popups/ReshareDraftPopup";
+import RejectReason from "../../Popups/RejectReason";
+import RejectReasonView from "../../Popups/RejectReasonView";
 
-const InductionCreationPage = () => {
-  const id = useParams().id || '';
+const InductionCreationPage = ({ versionPreview = false }) => {
+  const { id: routeId = '', version: versionNumber } = useParams();
+  const id = routeId;
   const navigate = useNavigate();
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
   const [share, setShare] = useState(false);
@@ -46,10 +51,12 @@ const InductionCreationPage = () => {
   const [userID, setUserID] = useState('');
   const [userIDs, setUserIDs] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingVersion, setIsSavingVersion] = useState(false);
   const autoSaveInterval = useRef(null);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState([]);
   const [isSaveAsModalOpen, setIsSaveAsModalOpen] = useState(false);
+  const [isRenamePopupOpen, setIsRenamePopupOpen] = useState(false);
   const loadedIDRef = useRef('');
   const [generatePopup, setGeneratePopup] = useState(false);
   const [draftNote, setDraftNote] = useState(null);
@@ -59,7 +66,8 @@ const InductionCreationPage = () => {
   const [publishable, setPublishable] = useState(false);
   const [loadingDraft, setLoadingDraft] = useState(false);
   const [preview, setPreview] = useState(false);
-  const [readOnly, setReadOnly] = useState(false);
+  const [readOnly, setReadOnly] = useState(versionPreview);
+  const [versionInfo, setVersionInfo] = useState(null);
   const [approval, setApproval] = useState(false);
   const [inApproval, setInApproval] = useState(false);
   const [owner, setOwner] = useState(false);
@@ -68,11 +76,17 @@ const InductionCreationPage = () => {
   const [removeApprovalState, setRemoveApprovalState] = useState(false);
   const [removingApproval, setRemovingApproval] = useState(false);
   const [canRemove, setCanRemove] = useState(false);
+  const [rejectState, setRejectState] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [isRejected, setIsRejected] = useState(false);
+  const [showRejectReasonView, setShowRejectReasonView] = useState(false);
+  const [rejectionInfo, setRejectionInfo] = useState({ rejectorName: "", rejectDate: null, rejectionMessage: "" });
 
-  const readOnlyRef = useRef(false);
+  const readOnlyRef = useRef(versionPreview);
   const [isSaveConfirmOpen, setIsSaveConfirmOpen] = useState(false);
   const [saveConfirmTrigger, setSaveConfirmTrigger] = useState("back");
   const pendingActionRef = useRef(null);
+  const [showReshareDraft, setShowReshareDraft] = useState(false);
 
   const stopAutoSave = () => {
     if (autoSaveInterval.current) {
@@ -360,6 +374,54 @@ const InductionCreationPage = () => {
     setIsSaveAsModalOpen(false);
   };
 
+  const openRenamePopup = () => setIsRenamePopupOpen(true);
+  const closeRenamePopup = () => setIsRenamePopupOpen(false);
+
+  // Renames the currently loaded draft in place (title only) via the
+  // dedicated rename endpoint, rather than re-saving the whole draft.
+  const handleRenameDraft = async (newTitle) => {
+    const activeId = loadedIDRef.current || loadedID;
+    if (!activeId) return;
+
+    try {
+      const response = await fetch(`${process.env.REACT_APP_URL}/api/visitorDrafts/rename/${activeId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({ title: newTitle }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to rename draft");
+      }
+
+      const newFormData = { ...formDataRef.current, courseTitle: newTitle };
+      setFormData(newFormData);
+      formDataRef.current = newFormData;
+
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.success("Draft renamed successfully.", {
+        closeButton: false,
+        autoClose: 1500,
+        style: { textAlign: 'center' }
+      });
+    } catch (err) {
+      console.error("Failed to rename draft:", err);
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.error(err.message || "Failed to rename draft", {
+        closeButton: true,
+        autoClose: 1500,
+        style: { textAlign: 'center' }
+      });
+      throw err;
+    }
+  };
+
   const confirmSaveAs = async (newTitle) => {
     // apply the new title, clear loadedID, then save
     const me = userIDRef.current;
@@ -464,6 +526,8 @@ const InductionCreationPage = () => {
   // save-before-navigate, etc.) where we intentionally do NOT want a toast, so
   // the success/failure messaging lives here, not inside saveData/updateData.
   const handleSave = async () => {
+    if (versionPreview || readOnly) return;
+
     if (formData.courseTitle === "") {
       toast.dismiss();
       toast.clearWaitingQueue();
@@ -534,8 +598,89 @@ const InductionCreationPage = () => {
     }
   };
 
+  const handleSaveVersion = async () => {
+    if (versionPreview || readOnly) return;
+
+    if (userIDsRef.current.length <= 1) {
+      toast.error("Only drafts shared with more than one person can have versions saved.", {
+        closeButton: true,
+        autoClose: 2200,
+        style: { textAlign: "center" }
+      });
+      return;
+    }
+
+    if (formDataRef.current.courseTitle.trim() === "") {
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.error("Please fill in at least the title field before saving a version.", {
+        closeButton: true,
+        autoClose: 1500,
+        style: { textAlign: "center" }
+      });
+      return;
+    }
+
+    setIsSavingVersion(true);
+
+    try {
+      let activeDraftId = loadedIDRef.current;
+
+      // Persist the working copy first so the snapshot exactly matches the
+      // content currently shown on screen. No duplicate-name check is used.
+      if (!activeDraftId) {
+        activeDraftId = await saveData();
+
+        if (!activeDraftId) {
+          throw new Error("The draft could not be saved before creating the version.");
+        }
+      } else {
+        const updated = await updateData(userIDsRef.current);
+
+        if (!updated) {
+          throw new Error("The latest draft changes could not be saved before creating the version.");
+        }
+      }
+
+      const response = await fetch(
+        `${process.env.REACT_APP_URL}/api/visitorDrafts/versions/${activeDraftId}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`
+          }
+        }
+      );
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Failed to save version");
+      }
+
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.success(`${result.label} saved successfully`, {
+        closeButton: true,
+        autoClose: 1800,
+        style: { textAlign: "center" }
+      });
+    } catch (error) {
+      console.error("Error saving induction version:", error);
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.error(error.message || "Failed to save version", {
+        closeButton: true,
+        autoClose: 2200,
+        style: { textAlign: "center" }
+      });
+    } finally {
+      setIsSavingVersion(false);
+    }
+  };
+
   async function saveData() {
-    if (readOnly) return;
+    if (versionPreview || readOnly) return;
 
     const normalizedSharedUsers = normalizeSharedUsers(
       userIDsRef.current,
@@ -559,7 +704,7 @@ const InductionCreationPage = () => {
 
 
   async function updateData(selectedUserIDs) {
-    if (readOnly) return;
+    if (versionPreview || readOnly) return;
     const wire = structuredClone(formDataRef.current);
     const fd = new FormData();
 
@@ -754,6 +899,63 @@ const InductionCreationPage = () => {
     }
   };
 
+  const handleRejectClick = () => {
+    setRejectState(true);
+  };
+
+  const closeRejectPopup = () => {
+    setRejectState(false);
+  };
+
+  const rejectDraft = async (message) => {
+    setRejecting(true);
+
+    try {
+      const response = await fetch(`${process.env.REACT_APP_URL}/api/visitorDrafts/reject-draft`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({ draftID: loadedIDRef.current, message }),
+      });
+
+      if (!response.ok) throw new Error("Failed to reject document");
+
+      toast.success(`Successfully Rejected.`, {
+        closeButton: true,
+        autoClose: 1500, // 1.5 seconds
+        style: {
+          textAlign: 'center'
+        }
+      });
+
+      if (autoSaveInterval.current) {
+        clearInterval(autoSaveInterval.current);
+        autoSaveInterval.current = null;
+      }
+
+      setIsRejected(true);
+      setReadOnly(true);
+      setRejectState(false);
+
+      setTimeout(() => {
+        navigate(-1);
+      }, 1500);
+    } catch (error) {
+      console.error("Error rejecting document:", error);
+      toast.error("Failed to reject document", {
+        closeButton: true,
+        autoClose: 1500,
+        style: {
+          textAlign: 'center'
+        }
+      });
+    } finally {
+      setRejecting(false);
+    }
+  };
+
   const removeFromApprovalProcess = async () => {
     const dataToStore = {
       draftID: loadedIDRef.current
@@ -804,8 +1006,12 @@ const InductionCreationPage = () => {
     try {
       setLoadingDraft(true);
 
+      const loadUrl = versionPreview && versionNumber
+        ? `${process.env.REACT_APP_URL}/api/visitorDrafts/versions/${loadID}/${versionNumber}`
+        : `${process.env.REACT_APP_URL}/api/visitorDrafts/load/${loadID}`;
+
       const response = await fetch(
-        `${process.env.REACT_APP_URL}/api/visitorDrafts/load/${loadID}`,
+        loadUrl,
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("token") || ""}`
@@ -824,6 +1030,7 @@ const InductionCreationPage = () => {
 
       const draftData = storedData.draft || {};
       const canRemove = storedData.canRemove || false;
+      const isWithdrawn = storedData.isWithdrawn || false;
 
       const ownerId =
         draftData.creator ||
@@ -839,8 +1046,8 @@ const InductionCreationPage = () => {
       setUsedTermCodes(draftData.usedTermCodes || []);
       setUserIDs(normalizedSharedUsers);
       userIDsRef.current = normalizedSharedUsers;
-      setPublishable(storedData.publishable);
-      setCanRemove(canRemove);
+      setPublishable(versionPreview ? false : Boolean(storedData.publishable));
+      setCanRemove(versionPreview ? false : canRemove);
 
       const rawForm = draftData.formData || {};
       const normalizedForm = {
@@ -853,6 +1060,11 @@ const InductionCreationPage = () => {
       const isOwner = storedData.isOwner || false;
       const isViewer = storedData.isViewer || false;
       const isPublisher = storedData.isPublisher || false;
+      const isRejectedFromServer = isOwner
+        ? false
+        : Boolean(storedData.draft.isRejected);
+
+      const isRejectedForOwner = isOwner && Boolean(storedData.draft.isRejected);
 
       revokeAllObjectUrls();
       const hydrated = await hydrateDraftMediaPreviews(normalizedForm);
@@ -865,9 +1077,12 @@ const InductionCreationPage = () => {
       // This is what's on the server right now, so nothing is "dirty" yet.
       isDirtyRef.current = false;
 
-      setInApproval(Boolean(storedData.statusApproval));
+      setInApproval(versionPreview ? false : Boolean(storedData.statusApproval));
+      setVersionInfo(versionPreview ? (storedData.version || null) : null);
 
-      if (storedData.statusApproval && storedData.readOnly) {
+      if (versionPreview || isRejectedFromServer) {
+        enableReadOnlyImmediately();
+      } else if (storedData.statusApproval && storedData.readOnly) {
         enableReadOnlyImmediately();
       } else {
         setReadOnly(storedData.readOnly);
@@ -876,6 +1091,25 @@ const InductionCreationPage = () => {
       setOwner(isOwner);
       setIsViewer(isViewer);
       setIsPublisher(isPublisher);
+      if (isRejectedForOwner) {
+        // The rejection view takes priority over the reshare popup. The
+        // reshare decision (if any) happens after the owner clicks
+        // "Review Document" — see resolveRejectedDraft.
+        setRejectionInfo({
+          rejectorName: storedData.draft.rejectorUser || "N/A",
+          rejectDate: storedData.draft.rejectDate || null,
+          rejectionMessage: storedData.draft.rejectionMessage || "",
+        });
+        setShowRejectReasonView(true);
+        setShowReshareDraft(false);
+      } else if (isWithdrawn && normalizedSharedUsers.length <= 1) {
+        // Only the owner is on this draft, so there's no one to reshare with —
+        // silently take the "do not reshare" path instead of showing the popup.
+        setShowReshareDraft(false);
+        resolveWithdrawnDraft(false, { silent: true });
+      } else {
+        setShowReshareDraft(isWithdrawn);
+      }
 
       setTimeout(() => {
         setLoadingDraft(false);
@@ -986,6 +1220,8 @@ const InductionCreationPage = () => {
   }, [formData]);
 
   useEffect(() => {
+    if (versionPreview) return;
+
     if (
       !readOnlyRef.current &&
       !autoSaveInterval.current &&
@@ -999,9 +1235,10 @@ const InductionCreationPage = () => {
     return () => {
       stopAutoSave();
     };
-  }, [formData.courseTitle, readOnly]);
+  }, [formData.courseTitle, readOnly, versionPreview]);
 
   const autoSaveDraft = () => {
+    if (versionPreview) return;
     if (readOnlyRef.current) return;
     if (formData.courseTitle.trim() === "") return;
     if (preview) return;
@@ -1353,14 +1590,121 @@ const InductionCreationPage = () => {
       return;
     }
     loadData(id);
-  }, [id]);
+    // loadData intentionally reads the current route mode/version.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, versionPreview, versionNumber]);
+
+  const resolveWithdrawnDraft = async (reshare, options = {}) => {
+    const { silent = false } = options;
+    try {
+      const response = await fetch(`${process.env.REACT_APP_URL}/api/visitorDrafts/resolveWithdrawn/${loadedIDRef.current}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({ reshare }),
+      });
+
+      if (!response.ok) throw new Error("Failed to update draft");
+
+      if (!silent) {
+        toast.success(
+          reshare
+            ? `Draft reshared with previous collaborators.`
+            : `Draft has not been reshared with previous collaborators.`,
+          {
+            closeButton: true,
+            autoClose: 1500,
+            style: {
+              textAlign: 'center'
+            }
+          }
+        );
+      }
+
+      // Refresh so userIDs/share role/etc. reflect the server's decision.
+      loadData(id);
+    } catch (error) {
+      console.error("Error resolving withdrawn draft:", error);
+      if (!silent) {
+        toast.error("Failed to update draft", {
+          closeButton: true,
+          autoClose: 1500,
+          style: {
+            textAlign: 'center'
+          }
+        });
+      }
+    } finally {
+      setShowReshareDraft(false);
+    }
+  };
+
+  const handleReshareDraft = () => resolveWithdrawnDraft(true);
+  const handleDoNotReshareDraft = () => resolveWithdrawnDraft(false);
+
+  const formatRejectDate = (dateValue) => {
+    if (!dateValue) return "N/A";
+    const parsed = new Date(dateValue);
+    if (isNaN(parsed.getTime())) return "N/A";
+
+    const datePart = parsed.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    const timePart = parsed.toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+
+    return `${datePart}`;
+  };
+
+  const resolveRejectedDraft = async () => {
+    try {
+      const response = await fetch(`${process.env.REACT_APP_URL}/api/visitorDrafts/resolveRejected/${loadedIDRef.current}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
+      });
+
+      if (!response.ok) throw new Error("Failed to update draft");
+
+      setShowRejectReasonView(false);
+      setIsRejected(false);
+      setReadOnly(false);
+
+      // Regardless of whether this draft was ever withdrawn, the owner now
+      // needs to decide whether to keep working with the previous
+      // collaborators — unless there's no one to reshare with in the first
+      // place (same guard used for withdrawn drafts).
+      setShowReshareDraft(userIDsRef.current.length > 1);
+    } catch (error) {
+      console.error("Error resolving rejected draft:", error);
+      toast.error("Failed to update draft", {
+        closeButton: true,
+        autoClose: 1500,
+        style: {
+          textAlign: 'center'
+        }
+      });
+    }
+  };
+
+  const handleReviewRejectedDraft = () => resolveRejectedDraft();
 
   const openPreview = async () => {
+    if (versionPreview) return;
     await updateData(userIDsRef.current);
     setPreview(true);
   }
 
-  const requiresSavePrompt = () => !readOnlyRef.current && !!loadedIDRef.current && isDirtyRef.current;
+  const requiresSavePrompt = () => !versionPreview && !readOnlyRef.current && !!loadedIDRef.current && isDirtyRef.current;
 
   const openSaveConfirm = (triggerType, action) => {
     setSaveConfirmTrigger(triggerType);
@@ -1380,8 +1724,12 @@ const InductionCreationPage = () => {
   };
 
   const handleBack = () => {
-    if (!requiresSavePrompt()) { leaveWithoutPrompt(() => navigate("/FrontendDMS/visitorInductionHome")); return; }
-    openSaveConfirm("back", () => navigate("/FrontendDMS/visitorInductionHome"));
+    const navigateBack = () => versionPreview
+      ? navigate(-1)
+      : navigate("/FrontendDMS/visitorInductionHome");
+
+    if (!requiresSavePrompt()) { leaveWithoutPrompt(navigateBack); return; }
+    openSaveConfirm("back", navigateBack);
   };
 
   const handleHomeNav = () => {
@@ -1465,7 +1813,7 @@ const InductionCreationPage = () => {
               <hr />
             </div>
 
-            {loadedIDRef.current && (<button className="but-um" style={{ marginTop: "10px", height: "62px" }} onClick={openPreview}>
+            {!versionPreview && loadedIDRef.current && (<button className="but-um" style={{ marginTop: "10px", height: "62px" }} onClick={openPreview}>
               <div className="button-content" >
                 <FontAwesomeIcon icon={faEye} className="button-logo-custom" />
                 <span className="button-text">Preview Visitor Induction</span>
@@ -1498,14 +1846,12 @@ const InductionCreationPage = () => {
               <FontAwesomeIcon icon={faArrowLeft} onClick={handleBack} title="Back" />
             </div>
 
-            {!readOnly && (
-              <>
-                <div className="burger-menu-icon-risk-create-page-1">
-                  <FontAwesomeIcon icon={faFloppyDisk} onClick={handleSave} title="Save" />
-                </div>
-
-                <div className="burger-menu-icon-risk-create-page-1">
-                  <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={openSaveAs} title="Save As">
+            {!versionPreview && !readOnly && userIDs.length > 1 && (
+              <div className="burger-menu-icon-risk-create-page-1">
+                {isSavingVersion ? (
+                  <FontAwesomeIcon icon={faSpinner} spin title="Saving Version" />
+                ) : (
+                  <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={handleSaveVersion} title="Save As New Version">
                     <FontAwesomeIcon icon={faSave} />
                     <FontAwesomeIcon
                       icon={faPen}
@@ -1513,6 +1859,18 @@ const InductionCreationPage = () => {
                       color="gray"
                     />
                   </span>
+                )}
+              </div>
+            )}
+
+            {!readOnly && (
+              <>
+                <div className="burger-menu-icon-risk-create-page-1">
+                  <FontAwesomeIcon icon={faFloppyDisk} onClick={handleSave} title="Save" />
+                </div>
+
+                <div className="burger-menu-icon-risk-create-page-1">
+                  <FontAwesomeIcon icon={faCopy} onClick={openSaveAs} title="Create Copy" />
                 </div>
 
                 <div className="burger-menu-icon-risk-create-page-1">
@@ -1535,7 +1893,11 @@ const InductionCreationPage = () => {
                   <FontAwesomeIcon icon={faCheckCircle} onClick={handleApproveClick} className={`${(!loadedID) ? "disabled-share" : ""}`} title="Approve Draft" />
                 </div>)}
 
-                {canRemove && inApproval && (<div className="burger-menu-icon-risk-create-page-1">
+                {(inApproval) && !readOnly && canIn(access, "TMS", ["systemAdmin", "contributor"]) && (<div className="burger-menu-icon-risk-create-page-1">
+                  <FontAwesomeIcon style={{ color: "#CB6F6F" }} icon={faTimesCircle} className={`${(!loadedID) ? "disabled-share" : ""}`} onClick={handleRejectClick} title="Reject Document" />
+                </div>)}
+
+                {false && canRemove && inApproval && (<div className="burger-menu-icon-risk-create-page-1">
                   <FontAwesomeIcon icon={faBan} onClick={openRemoveApproval} title="Remove From Approval Process" style={{ color: "#CB6F6F" }} />
                 </div>)}
               </>
@@ -1547,6 +1909,12 @@ const InductionCreationPage = () => {
           <TopBarDD refreshable={false} canIn={canIn} access={access} menu={"1"} create={true} onHome={handleHomeNav} />
         </div>
 
+        {!loadingDraft && isRejected && (<div className="input-row">
+          <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#CB6F6F", color: "white", fontWeight: "bold" }}>
+            This document is in Read Only Mode as it has been rejected and requires document owner intervention.
+          </div>
+        </div>)}
+
         <div className={`scrollable-box`}>
           {loadingDraft && (
             <div className="file-info-loading" role="status" aria-live="polite" aria-label="Loading">
@@ -1555,7 +1923,18 @@ const InductionCreationPage = () => {
             </div>
           )}
 
-          {(isViewer && readOnly) && (<div className="input-row">
+          {versionPreview && versionInfo && (
+            <div className="input-row">
+              <div
+                className="input-box-aim-cp"
+                style={{ marginBottom: "10px", background: "#002060", color: "white", fontWeight: "bold" }}
+              >
+                Viewing {versionInfo.label} - read only historical version.
+              </div>
+            </div>
+          )}
+
+          {(!versionPreview && isViewer && readOnly && !isRejected) && (<div className="input-row">
             <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#FFFF89", color: "black", fontWeight: "bold" }}>
               View-only access. Please contact the owner to request edit access.
             </div>
@@ -1563,7 +1942,7 @@ const InductionCreationPage = () => {
 
           {!loadingDraft && (
             <>
-              {!isViewer && readOnly && (<div className="input-row">
+              {!versionPreview && !isViewer && readOnly && !isRejected && (<div className="input-row">
                 <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#CB6F6F", color: "white" }}>
                   <strong>Read-only mode:</strong> This document is currently in its publishing phase and cannot be edited at this time.
                 </div>
@@ -1580,11 +1959,23 @@ const InductionCreationPage = () => {
                       name="courseTitle"
                       className="font-fam title-input"
                       value={formData.courseTitle}
-                      readOnly={readOnly}
+                      readOnly={readOnly || Boolean(loadedID)}
                       onChange={handleInputChange}
                       placeholder="Insert Visitor Induction Title"
                     />
                   </div>
+                  {Boolean(loadedID) && !readOnly && (
+                    <button
+                      type="button"
+                      className="generate-button font-fam"
+                      onClick={openRenamePopup}
+                      disabled={readOnly}
+                      title={readOnly ? "This draft is currently locked" : "Rename this draft"}
+                      style={{ marginTop: "15px" }}
+                    >
+                      Rename Document
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1686,6 +2077,16 @@ const InductionCreationPage = () => {
           )}
         </div>
         {isSaveAsModalOpen && (<SaveAsInductionPopup saveAs={confirmSaveAs} onClose={closeSaveAs} current={formData.courseTitle} type={""} userID={userID} create={true} />)}
+        {isRenamePopupOpen && (
+          <RenameDraftPopup
+            onClose={closeRenamePopup}
+            onRename={handleRenameDraft}
+            current={formData.courseTitle}
+            draftId={loadedIDRef.current || loadedID}
+            siblingDraftsRoute={`${process.env.REACT_APP_URL}/api/visitorDrafts/getDrafts/${userID}`}
+            titleField="courseTitle"
+          />
+        )}
         {generatePopup && (<GenerateDraftPopup deleteDraft={handleGeneratePDF} closeModal={closeGenerate} cancel={cancelGenerate} />)}
         {draftNote && (<DraftPopup closeModal={closeDraftNote} />)}
         {showWorkflow && (<DocumentWorkflow setClose={closeWorkflow} />)}
@@ -1706,6 +2107,7 @@ const InductionCreationPage = () => {
           triggerType={saveConfirmTrigger}
         />
       )}
+      {rejectState && (<RejectReason isOpen={rejectState} onClose={closeRejectPopup} onSubmit={rejectDraft} loading={rejecting} />)}
       {removeApprovalState && (
         <RemoveFromApprovalPopup
           closeModal={closeRemoveApproval}
@@ -1713,6 +2115,15 @@ const InductionCreationPage = () => {
           docType="visitor induction draft"
           title={formData.courseTitle}
           loading={removingApproval}
+        />
+      )}
+      {showReshareDraft && (<ReshareDraftPopup reshare={handleReshareDraft} doNotReshare={handleDoNotReshareDraft} />)}
+      {showRejectReasonView && (
+        <RejectReasonView
+          rejectorName={rejectionInfo.rejectorName}
+          rejectDate={formatRejectDate(rejectionInfo.rejectDate)}
+          rejectionReason={rejectionInfo.rejectionMessage}
+          reviewDocument={handleReviewRejectedDraft}
         />
       )}
     </div>

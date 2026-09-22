@@ -12,8 +12,12 @@ import TopBar from "../../Notifications/TopBar";
 import DeletePopup from "../../FileInfo/DeletePopup";
 import RiskSignedOffUploadPopup from "../SignedOffDocuments/RiskSignedOffUploadPopup";
 import { ToastContainer } from "react-toastify";
+import { getCurrentUser, isAdmin, canIn } from "../../../utils/auth";
 
 const RiskDocumentsJRA = () => {
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "RMS", ["systemAdmin"]);
+
     const [files, setFiles] = useState([]);
     const [error, setError] = useState(null);
     const [token, setToken] = useState('');
@@ -81,9 +85,14 @@ const RiskDocumentsJRA = () => {
     const getStatus = (s) => (s?.toLowerCase() === 'published' ? 'Pending Sign Off' : s);
 
     useEffect(() => { const t = localStorage.getItem('token'); if (t) { setToken(t); setUserID(jwtDecode(t).userId); } }, [navigate]);
-    useEffect(() => { if (token) fetchFiles(); }, [token]);
+    useEffect(() => { if (token) fetchFiles(); }, [token, isSystemAdmin]);
 
-    const fetchFiles = async () => { try { const r = await fetch(`${process.env.REACT_APP_URL}/api/fileGenDocs/jra/${userID}`); if (!r.ok) throw new Error('Failed'); const d = await r.json(); setFiles(d.files); } catch (e) { setError(e.message); } };
+    const fetchFiles = async () => {
+        const route = isSystemAdmin
+            ? `${process.env.REACT_APP_URL}/api/fileGenDocs/jra/${userID}?isAdmin=true`
+            : `${process.env.REACT_APP_URL}/api/fileGenDocs/jra/${userID}`;
+        try { const r = await fetch(route); if (!r.ok) throw new Error('Failed'); const d = await r.json(); setFiles(d.files); } catch (e) { setError(e.message); }
+    };
 
     const downloadFile = async (fileId, fileName) => { try { setLoading(true); const r = await fetch(`${process.env.REACT_APP_URL}/api/file/generatedJRA/download/${fileId}`, { headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error('Failed'); const blob = await r.blob(); const url = window.URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', fileName || 'doc.pdf'); document.body.appendChild(link); link.click(); link.parentNode.removeChild(link); } catch (e) { alert('Error downloading'); } finally { setLoading(false); } };
 

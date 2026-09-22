@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faSpinner } from "@fortawesome/free-solid-svg-icons";
 import "./CreateUserModal.css";
 
-const AddUserModal = ({ isModalOpen, closeModal, createUser, formError, newUser, setNewUser, isAdmin, current }) => {
+const AddUserModal = ({ isModalOpen, closeModal, createUser, formError, newUser, setNewUser, isAdmin, current, isCreatingUser }) => {
     const closeModalAdd = () => {
         setNewUser({ username: "", email: "", role: "", reportingTo: "", department: "", designation: "" });
         closeModal();
@@ -295,7 +297,16 @@ const AddUserModal = ({ isModalOpen, closeModal, createUser, formError, newUser,
                     </div>
 
                     <div className="create-user-buttons">
-                        <button type="submit" className="create-user-button">Add User</button>
+                        <button type="submit" className="create-user-button" disabled={isCreatingUser}>
+                            {isCreatingUser ? (
+                                <>
+                                    <FontAwesomeIcon icon={faSpinner} className="um-spinner-icon" />
+                                    <span style={{ marginLeft: 8 }}></span>
+                                </>
+                            ) : (
+                                "Add User"
+                            )}
+                        </button>
                     </div>
                 </form>
             </div>

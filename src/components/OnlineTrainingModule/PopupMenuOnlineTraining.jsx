@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useNavigate } from "react-router-dom";
 
-const PopupMenuOnlineTraining = ({ isOpen, setHoveredFileId, undoRetakeChoice, openDownloadModal, file, type, risk = false, typeDoc = "", id = null, openPreview }) => {
+const PopupMenuOnlineTraining = ({ isOpen, setHoveredFileId, undoRetakeChoice, openDownloadModal, file, type, risk = false, typeDoc = "", id = null, openPreview, isCreate = false, openReviewPopup }) => {
     const navigate = useNavigate();
 
     return (
@@ -15,7 +15,10 @@ const PopupMenuOnlineTraining = ({ isOpen, setHoveredFileId, undoRetakeChoice, o
                         <li onClick={() => openPreview(file._id)}>Preview Course</li>
                     </ul>
                     <ul>
-                        <li onClick={() => navigate(`/FrontendDMS/onlineReviewCourse/${file._id}`)}>Review</li>
+                        <li onClick={() => {
+                            if (isCreate) openReviewPopup(file._id)
+                            navigate(`/FrontendDMS/onlineReviewCourse/${file._id}`)
+                        }}>Review</li>
                     </ul>
                     {file.undoable && (<ul>
                         <li onClick={() => undoRetakeChoice(file.batchId)}>Undo Require Retake</li>

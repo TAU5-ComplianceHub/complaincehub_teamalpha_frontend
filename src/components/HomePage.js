@@ -80,9 +80,9 @@ const HomePage = () => {
     {
       title: "Training Management", src: "TM.png", icon: faGraduationCap, path: "/FrontendDMS/trainingHomePage", category: "TMS"
     },
-    {
-      title: "EPA Management", src: "EPAM.png", icon: faGraduationCap, path: "/FrontendDMS/EPACSHome", category: "EPACS"
-    },
+    //{
+    //  title: "EPA Management", src: "EPAM.png", icon: faGraduationCap, path: "/FrontendDMS/EPACSHome", category: "EPACS"
+    //},
     {
       title: "Compliance Tracking", src: "CM.png", icon: faFileAlt, path: "/FrontendDMS/ctsHome", category: "CMS"
     },
@@ -216,7 +216,7 @@ const HomePage = () => {
       </div>
       <button className={isAdmin(access) ? `admin-page-home-button` : `logout-button`} onClick={handleNavigateDash}>Dashboards</button>
       {isAdmin(access) && (<button className="logout-button" onClick={handleNavigateAdmin}>Admin Page</button>)}
-      <button className="coming-soon-button" onClick={() => navigate("/FrontendDMS/futureEnhancement")}>Coming Soon</button>
+      {false && (<button className="coming-soon-button" onClick={() => navigate("/FrontendDMS/futureEnhancement")}>Coming Soon</button>)}
       <ToastContainer />
       {showNotifications && (<NotificationsHomePage setClose={setShowNotifications} getCount={fetchNotificationCount} />)}
       {(isMenuOpen) && (<BurgerMenuHomePage isOpen={isMenuOpen} setIsOpen={setIsMenuOpen} />)}

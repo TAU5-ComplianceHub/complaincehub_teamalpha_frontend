@@ -2,20 +2,27 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { jwtDecode } from 'jwt-decode';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faTrash, faCircleLeft, faPenToSquare, faRotateLeft, faArrowsRotate, faMagnifyingGlass, faCircleXmark, faX, faFilter, faSortUp, faSortDown, faArrowLeft, faCaretRight, faCaretLeft, faSearch } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faTrash, faCircleLeft, faPenToSquare, faRotateLeft, faArrowsRotate, faMagnifyingGlass, faCircleXmark, faX, faFilter, faSortUp, faSortDown, faArrowLeft, faCaretRight, faCaretLeft, faSearch, faFileArrowDown } from '@fortawesome/free-solid-svg-icons';
 import TopBar from "../Notifications/TopBar";
 import { toast, ToastContainer } from "react-toastify";
 import RemoveFromApprovalPopup from "../Popups/RemoveFromApprovalPopup";
+import { getCurrentUser, can, canIn, isAdmin } from "../../utils/auth";
 
 // Same shell as DraftsPage, but backed by the review/approval workflow:
 // documents that are "In Review" or "In Approval" live here instead of in
-// Saved Drafts. Swapping between the two views is done purely off the
+// Saved Drafts or Under Revision. Each row carries a workflowSource so a
+// development draft and a published-document revision can use different
+// editor routes while sharing the same table. Swapping document types uses the
 // ":type" route param, e.g. /documentDevelopmentApprovals/procedure vs
 // /documentDevelopmentDrafts/procedure.
 const ApprovalsPage = () => {
     const [drafts, setDrafts] = useState([]);
     const [query, setQuery] = useState('');
-    const [removeConfirm, setRemoveConfirm] = useState({ open: false, draftId: null });
+    const [removeConfirm, setRemoveConfirm] = useState({
+        open: false,
+        draftId: null,
+        workflowSource: null,
+    });
     const [isLoading, setIsLoading] = useState(true);
     const [showNoDrafts, setShowNoDrafts] = useState(false);
     const [removePopup, setRemovePopup] = useState(false);
@@ -27,6 +34,9 @@ const ApprovalsPage = () => {
     const [removeLoading, setRemoveLoading] = useState(false);
     const navigate = useNavigate();
     const { type } = useParams();
+
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "DDS", ["systemAdmin"]);
 
     // Excel Filter States
     const [excelFilter, setExcelFilter] = useState({
@@ -54,8 +64,10 @@ const ApprovalsPage = () => {
                 icon: `${process.env.PUBLIC_URL}/proceduresDMSInverted.svg`,
                 label: "Review & Approval Procedures",
                 loadRoute: `${process.env.REACT_APP_URL}/api/draft/reviewApprovalDrafts`,
-                removeApprovalRoute: (draftId) => `${process.env.REACT_APP_URL}/api/draft/removeFromApproval/${draftId}`,
+                removeApprovalRoute: (draftId) => `${process.env.REACT_APP_URL}/api/documentApprovals/remove-from-approval-proc-draft`,
                 rowClickRoute: (draftId) => `/FrontendDMS/documentCreateProc/Procedure/${draftId}`,
+                revisionRowClickRoute: (documentId) => `/FrontendDMS/review/${documentId}`,
+                revisionRemoveApprovalRoute: (documentId) => `${process.env.REACT_APP_URL}/api/fileGenDocs/removeFromApproval/${documentId}`,
                 draftsRoute: `/FrontendDMS/documentDevelopmentDrafts/procedure`,
             },
 
@@ -63,8 +75,10 @@ const ApprovalsPage = () => {
                 icon: `${process.env.PUBLIC_URL}/standardsDMSInverted.svg`,
                 label: "Review & Approval Standards",
                 loadRoute: `${process.env.REACT_APP_URL}/api/draft/standards/reviewApprovalDrafts`,
-                removeApprovalRoute: (draftId) => `${process.env.REACT_APP_URL}/api/draft/standards/removeFromApproval/${draftId}`,
+                removeApprovalRoute: (draftId) => `${process.env.REACT_APP_URL}/api/documentApprovals/remove-from-approval-stand-draft`,
                 rowClickRoute: (draftId) => `/FrontendDMS/documentCreateStand/Standard/${draftId}`,
+                revisionRowClickRoute: (documentId) => `/FrontendDMS/reviewStandard/${documentId}/standard`,
+                revisionRemoveApprovalRoute: (documentId) => `${process.env.REACT_APP_URL}/api/fileGenDocs/standard/removeFromApproval/${documentId}`,
                 draftsRoute: `/FrontendDMS/documentDevelopmentDrafts/standard`,
             },
 
@@ -72,14 +86,20 @@ const ApprovalsPage = () => {
                 icon: `${process.env.PUBLIC_URL}/specialInstInverted.svg`,
                 label: "Review & Approval Special Instruction",
                 loadRoute: `${process.env.REACT_APP_URL}/api/draft/special/reviewApprovalDrafts`,
-                removeApprovalRoute: (draftId) => `${process.env.REACT_APP_URL}/api/draft/special/removeFromApproval/${draftId}`,
+                removeApprovalRoute: (draftId) => `${process.env.REACT_APP_URL}/api/documentApprovals/remove-from-approval-si-draft`,
                 rowClickRoute: (draftId) => `/FrontendDMS/documentCreateSI/Special Instruction/${draftId}`,
+                revisionRowClickRoute: (documentId) => `/FrontendDMS/reviewSpecial/${documentId}/special`,
+                revisionRemoveApprovalRoute: (documentId) => `${process.env.REACT_APP_URL}/api/fileGenDocs/special/removeFromApproval/${documentId}`,
                 draftsRoute: `/FrontendDMS/documentDevelopmentDrafts/special`,
             },
         };
 
         return configMap[type] || configMap.procedure;
     }, [type]);
+
+    const getRowClickRoute = (item) => item.workflowSource === "revision"
+        ? pageConfig.revisionRowClickRoute(item._id)
+        : pageConfig.rowClickRoute(item._id);
 
     const formatDateTime = (dateString) => {
         if (!dateString) return "Not Updated Yet";
@@ -188,14 +208,16 @@ const ApprovalsPage = () => {
 
     const closeRemove = () => {
         setRemovePopup(false);
-        setRemoveConfirm({ open: false, draftId: null });
+        setRemoveConfirm({ open: false, draftId: null, workflowSource: null });
     };
 
     const fetchReviewApprovalDocuments = async () => {
         setIsLoading(true);
         setShowNoDrafts(false);
         const token = localStorage.getItem("token");
-        const route = pageConfig.loadRoute;
+        const route = isSystemAdmin
+            ? `${pageConfig.loadRoute}?isAdmin=true`
+            : pageConfig.loadRoute;
         try {
             const response = await fetch(route, {
                 method: "GET",
@@ -214,7 +236,7 @@ const ApprovalsPage = () => {
     useEffect(() => {
         fetchReviewApprovalDocuments();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pageConfig]);
+    }, [pageConfig, isSystemAdmin]);
 
     useEffect(() => {
         if (!isLoading && drafts.length === 0) {
@@ -225,23 +247,33 @@ const ApprovalsPage = () => {
         }
     }, [isLoading, drafts]);
 
-    const confirmRemove = (draftId, draftTitle) => {
-        setRemoveConfirm({ open: true, draftId });
-        setTitle(draftTitle);
+    const confirmRemove = (item) => {
+        setRemoveConfirm({
+            open: true,
+            draftId: item._id,
+            workflowSource: item.workflowSource || "draft",
+        });
+        setTitle(item.formData?.title || "Document");
         setRemovePopup(true);
     };
 
     const handleRemoveApproval = async () => {
-        const { draftId } = removeConfirm;
+        const { draftId, workflowSource } = removeConfirm;
         if (!draftId) return;
 
-        const route = pageConfig.removeApprovalRoute(draftId);
+        const route = workflowSource === "revision"
+            ? pageConfig.revisionRemoveApprovalRoute(draftId)
+            : pageConfig.removeApprovalRoute(draftId);
 
         try {
             setRemoveLoading(true);
             const response = await fetch(route, {
                 method: "POST",
-                headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem("token")}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ draftID: draftId }),
             });
 
             if (!response.ok) {
@@ -249,9 +281,12 @@ const ApprovalsPage = () => {
                 throw new Error(errText || "Failed to remove the document from the approval process");
             }
 
-            // Removing from approval moves it out of this folder and back into
-            // Saved Drafts, so it simply drops out of this list.
-            setDrafts(prev => prev.filter(d => d._id !== draftId));
+            // Development drafts return to Saved Drafts; revisions return to
+            // Under Revision. Either way, the row leaves this approvals list.
+            setDrafts(prev => prev.filter((item) => !(
+                item._id === draftId &&
+                (item.workflowSource || "draft") === (workflowSource || "draft")
+            )));
 
             toast.success("Document removed from the review/approval process");
 
@@ -263,7 +298,7 @@ const ApprovalsPage = () => {
             setRemoveLoading(false);
         }
 
-        setRemoveConfirm({ open: false, draftId: null });
+        setRemoveConfirm({ open: false, draftId: null, workflowSource: null });
         closeRemove();
     };
 
@@ -437,14 +472,15 @@ const ApprovalsPage = () => {
                             <tbody>
                                 {!isLoading && drafts.length > 0 && filteredDrafts.length > 0 && (
                                     displayDrafts.map((item, index) => {
-                                        const isPublisher = item.publisher && String(item.publisher) === String(userID);
+                                        const publisherId = item.publisher?._id || item.publisher;
+                                        const isPublisher = publisherId && String(publisherId) === String(userID);
                                         const statusClass = getStatusClass(item.documentStatus);
                                         return (
                                             <tr
-                                                key={item._id}
+                                                key={`${item.workflowSource || "draft"}-${item._id}`}
                                                 style={{ fontSize: "14px" }}
                                                 className="load-draft-td"
-                                                onClick={() => navigate(pageConfig.rowClickRoute(item._id))}
+                                                onClick={() => navigate(getRowClickRoute(item))}
                                             >
                                                 <td style={{ fontFamily: "Arial", textAlign: "center" }}>
                                                     {index + 1}
@@ -467,10 +503,10 @@ const ApprovalsPage = () => {
                                                         className={"action-button-load-draft delete-button-load-draft"}
                                                         style={{ width: "100%" }}
                                                         disabled={!isPublisher}
-                                                        title={isPublisher ? "Remove from approval process" : "Only the publisher can remove this document from the approval process"}
-                                                        onClick={(e) => { e.stopPropagation(); confirmRemove(item._id, item.formData.title); }}
+                                                        title={isPublisher ? "Withdraw from approval process" : "Only the publisher can remove this document from the approval process"}
+                                                        onClick={(e) => { e.stopPropagation(); confirmRemove(item); }}
                                                     >
-                                                        <FontAwesomeIcon icon={faTrash} title="Remove from approval process" />
+                                                        <FontAwesomeIcon icon={faFileArrowDown} title="Withdraw from approval process" />
                                                     </button>
                                                 </td>
                                             </tr>

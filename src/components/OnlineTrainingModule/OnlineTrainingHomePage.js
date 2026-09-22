@@ -128,7 +128,7 @@ const OnlineTrainingHomePage = () => {
                             <h3 className="document-title-fi-home">Controlled Courses</h3>
                         </>
                     </div>)}
-                    {false && (<div className={`document-card-risk-home`} onClick={() => navigate("/FrontendDMS/onlineTrainingRevisions")}>
+                    {true && (<div className={`document-card-risk-home`} onClick={() => navigate("/FrontendDMS/trainingRevisionInfo")}>
                         <>
                             <div className="icon-risk">
                                 <img src={`${process.env.PUBLIC_URL}/tmsPublished.svg`} alt="Control Attributes" className="icon-risk" />

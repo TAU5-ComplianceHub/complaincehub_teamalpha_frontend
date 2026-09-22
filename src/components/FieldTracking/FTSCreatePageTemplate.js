@@ -12,7 +12,7 @@ import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';  // Import CSS for styling
 import LoadDraftPopup from "../CreatePage/LoadDraftPopup";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faChevronLeft, faChevronRight, faFileCirclePlus, faArrowLeft, faSort, faCircleUser, faBell, faShareNodes, faUpload, faRotateRight, faCircleExclamation, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faMagicWandSparkles, faInfo, faCheckCircle } from '@fortawesome/free-solid-svg-icons';
+import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faChevronLeft, faChevronRight, faFileCirclePlus, faArrowLeft, faSort, faCircleUser, faBell, faShareNodes, faUpload, faRotateRight, faCircleExclamation, faPen, faSave, faArrowUp, faCaretLeft, faCaretRight, faMagicWandSparkles, faInfo, faCheckCircle, faCopy, faTimesCircle } from '@fortawesome/free-solid-svg-icons';
 import { faFolderOpen as faFolderOpenSolid } from "@fortawesome/free-regular-svg-icons"
 import SharePage from "../CreatePage/SharePage";
 import TopBarDD from "../Notifications/TopBarDD";
@@ -65,6 +65,9 @@ import HandToolTable from "../CreatePage/HandToolsTable";
 import MaterialsTable from "../CreatePage/MaterialsTable";
 import HazardsControlsTable from "../CreatePage/HazardsControlsTable";
 import HazardsControlsTableFTS from "./HazardsControlsTableFTS";
+import ReshareDraftPopup from "../Popups/ReshareDraftPopup";
+import RejectReason from "../Popups/RejectReason";
+import RejectReasonView from "../Popups/RejectReasonView";
 
 // Backend dedup (see fieldTemplateDrafts.mjs) may append a " (n)" counter to
 // formData.title when its auto-generated value collides with another of the
@@ -119,10 +122,11 @@ const dedupeSortHazardsControls = (...arraysOfRows) => {
   });
 };
 
-const FTSCreatePageTemplate = () => {
+const FTSCreatePageTemplate = ({ versionPreview = false }) => {
   const navigate = useNavigate();
   const type = useParams().type;
   const draftId = useParams().id;
+  const versionNumber = useParams().version;
   const access = getCurrentUser();
   const [isOpenMenu, setIsOpenMenu] = useState(false);
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
@@ -153,7 +157,8 @@ const FTSCreatePageTemplate = () => {
   const [loadingScope, setLoadingScope] = useState(false);
   const [draftNote, setDraftNote] = useState(null);
   const [showWorkflow, setShowWorkflow] = useState(null);
-  const [readOnly, setReadOnly] = useState(false);
+  const [readOnly, setReadOnly] = useState(versionPreview);
+  const [versionInfo, setVersionInfo] = useState(null);
   const [lockUser, setLockUser] = useState(null);
   const scrollBoxRef = useRef(null);
   const [owner, setOwner] = useState(false);
@@ -170,6 +175,13 @@ const FTSCreatePageTemplate = () => {
   const [isPublisher, setIsPublisher] = useState(false);
   const [isSaving, setIsSaving] = useState(false); // spinner state for the top "Save" icon
   const [isPublishing, setIsPublishing] = useState(false); // spinner state for the top "Publish" icon
+  const [isSavingVersion, setIsSavingVersion] = useState(false);
+  const [showReshareDraft, setShowReshareDraft] = useState(false);
+  const [rejectState, setRejectState] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [isRejected, setIsRejected] = useState(false);
+  const [showRejectReasonView, setShowRejectReasonView] = useState(false);
+  const [rejectionInfo, setRejectionInfo] = useState({ rejectorName: "", rejectDate: null, rejectionMessage: "" });
 
   const SHARE_ROLES = ["collaborator", "viewer", "publisher"];
   const ALL_ALLOWED_ROLES = ["owner", ...SHARE_ROLES];
@@ -318,7 +330,7 @@ const FTSCreatePageTemplate = () => {
       return;
     }
 
-    if (result?.id) {
+    if (result?.id && !versionPreview) {
       await loadData(result.id);
     }
 
@@ -331,6 +343,10 @@ const FTSCreatePageTemplate = () => {
     });
 
     setIsSaveAsModalOpen(false);
+
+    if (versionPreview && result?.id) {
+      navigate(`/FrontendDMS/ftsCreateTemplate/${type}/${result.id}`);
+    }
   };
 
   const openShare = () => {
@@ -351,6 +367,8 @@ const FTSCreatePageTemplate = () => {
   const closeShare = () => { setShare(false); };
 
   const handleSave = async () => {
+    if (versionPreview || readOnly) return;
+
     if (formData.title.trim() === "") {
       toast.dismiss();
       toast.clearWaitingQueue();
@@ -417,6 +435,99 @@ const FTSCreatePageTemplate = () => {
       }
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveVersion = async () => {
+    if (versionPreview || readOnly) return;
+
+    if (userIDsRef.current.length <= 1) {
+      toast.error("Only drafts shared with more than one person can have versions saved.", {
+        closeButton: true,
+        autoClose: 2200,
+        style: { textAlign: "center" }
+      });
+      return;
+    }
+
+    if (formDataRef.current.title.trim() === "") {
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.error("Please fill in Frequency, the Work Order Basis field, and Work Order Type before saving a version.", {
+        closeButton: true,
+        autoClose: 2000,
+        style: { textAlign: "center" }
+      });
+      return;
+    }
+
+    setIsSavingVersion(true);
+
+    try {
+      let activeDraftId = loadedIDRef.current;
+
+      // Persist the working copy first so the version snapshot represents
+      // exactly what is currently shown on screen.
+      if (!activeDraftId) {
+        const saveResult = await saveData();
+
+        if (saveResult?.duplicate) {
+          setIsDuplicateName(true);
+          toast.warn("A draft with this name already exists. Please enter a new draft name.", {
+            closeButton: true,
+            autoClose: 2000,
+            style: { textAlign: "center" }
+          });
+          return;
+        }
+
+        if (!saveResult?.ok || !saveResult?.id) {
+          throw new Error("The draft could not be saved before creating the version.");
+        }
+
+        activeDraftId = saveResult.id;
+      } else {
+        const updateResult = await updateData(userIDsRef.current);
+
+        if (!updateResult?.ok) {
+          throw new Error("The latest draft changes could not be saved before creating the version.");
+        }
+      }
+
+      const response = await fetch(
+        `${process.env.REACT_APP_URL}/api/ftsDrafts/templates/versions/${activeDraftId}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`
+          }
+        }
+      );
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Failed to save version");
+      }
+
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.success(`${result.label} saved successfully`, {
+        closeButton: true,
+        autoClose: 1800,
+        style: { textAlign: "center" }
+      });
+    } catch (error) {
+      console.error("Error saving FTS template version:", error);
+      toast.dismiss();
+      toast.clearWaitingQueue();
+      toast.error(error.message || "Failed to save version", {
+        closeButton: true,
+        autoClose: 2200,
+        style: { textAlign: "center" }
+      });
+    } finally {
+      setIsSavingVersion(false);
     }
   };
 
@@ -735,8 +846,12 @@ const FTSCreatePageTemplate = () => {
     try {
       const token = localStorage.getItem("token");
 
+      const loadUrl = versionPreview && versionNumber
+        ? `${process.env.REACT_APP_URL}/api/ftsDrafts/templates/versions/${loadID}/${versionNumber}`
+        : `${process.env.REACT_APP_URL}/api/ftsDrafts/templates/getDraft/${loadID}`;
+
       const response = await fetch(
-        `${process.env.REACT_APP_URL}/api/ftsDrafts/templates/getDraft/${loadID}`,
+        loadUrl,
         {
           method: "GET",
           headers: {
@@ -753,10 +868,18 @@ const FTSCreatePageTemplate = () => {
       const data = await response.json();
 
       const storedData = data.draft || {};
-      const readOnly = data.readOnly || false;
+      const serverReadOnly = data.readOnly || false;
       const isOwner = data.isOwner || false;
       const isViewer = data.isViewer || false;
       const isPublisher = data.isPublisher || false;
+      const isWithdrawn = data.isWithdrawn || false;
+      const isRejectedFromServer = isOwner
+        ? false
+        : Boolean(storedData.isRejected || data.isRejected);
+      // Owner-facing view of the same flag: the owner doesn't get the
+      // read-only "rejected" banner (they're the one meant to fix it), but
+      // they do need to see who rejected it, when, and why.
+      const isRejectedForOwner = isOwner && Boolean(storedData.isRejected || data.isRejected);
 
       const ownerId =
         storedData.creator ||
@@ -800,13 +923,33 @@ const FTSCreatePageTemplate = () => {
       setLoadedID(loadID);
       // This is what's on the server right now, so nothing is "dirty" yet.
       isDirtyRef.current = false;
-
-      setReadOnly(readOnly);
+      setReadOnly(Boolean(data.readOnly) || isRejectedFromServer);
+      setIsRejected(isRejectedFromServer);
+      setVersionInfo(versionPreview ? (data.version || null) : null);
       setOwner(isOwner)
       setIsViewer(isViewer);
       setIsPublisher(isPublisher);
       setInApproval(Boolean(data.statusApproval));
       setInReview(Boolean(data.statusReview));
+      if (isRejectedForOwner) {
+        // The rejection view takes priority over the reshare popup. The
+        // reshare decision (if any) happens after the owner clicks
+        // "Review Document" — see resolveRejectedDraft.
+        setRejectionInfo({
+          rejectorName: storedData.rejectorUser || "N/A",
+          rejectDate: storedData.rejectDate || null,
+          rejectionMessage: storedData.rejectionMessage || "",
+        });
+        setShowRejectReasonView(true);
+        setShowReshareDraft(false);
+      } else if (isWithdrawn && normalizedSharedUsers.length <= 1) {
+        // Only the owner is on this draft, so there's no one to reshare with —
+        // silently take the "do not reshare" path instead of showing the popup.
+        setShowReshareDraft(false);
+        resolveWithdrawnDraft(false, { silent: true });
+      } else {
+        setShowReshareDraft(isWithdrawn);
+      }
 
       requestAnimationFrame(() => {
         scrollBoxRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -1186,6 +1329,7 @@ const FTSCreatePageTemplate = () => {
   }, [formData.templateTitle]);
 
   useEffect(() => {
+    if (versionPreview) return;
     if (offlineDraft) return;
     if (readOnlyRef.current) return;
 
@@ -1205,9 +1349,10 @@ const FTSCreatePageTemplate = () => {
         console.log("🧹 Auto-save interval cleared");
       }
     };
-  }, [formData.title]);
+  }, [formData.title, versionPreview]);
 
   const autoSaveDraft = () => {
+    if (versionPreview) return;
     if (readOnly) return;
     if (readOnlyRef.current) return;
     if (formData.title.trim() === "") return; // Don't save without a valid title
@@ -1926,6 +2071,63 @@ const FTSCreatePageTemplate = () => {
     }
   };
 
+  const handleRejectClick = () => {
+    setRejectState(true);
+  };
+
+  const closeRejectPopup = () => {
+    setRejectState(false);
+  };
+
+  const rejectDraft = async (message) => {
+    setRejecting(true);
+
+    try {
+      const response = await fetch(`${process.env.REACT_APP_URL}/api/ftsApproval/reject-draft-template`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({ draftID: loadedIDRef.current, message }),
+      });
+
+      if (!response.ok) throw new Error("Failed to reject document");
+
+      toast.success(`Successfully Rejected.`, {
+        closeButton: true,
+        autoClose: 1500, // 1.5 seconds
+        style: {
+          textAlign: 'center'
+        }
+      });
+
+      if (autoSaveInterval.current) {
+        clearInterval(autoSaveInterval.current);
+        autoSaveInterval.current = null;
+      }
+
+      setIsRejected(true);
+      setReadOnly(true);
+      setRejectState(false);
+
+      setTimeout(() => {
+        navigate(-1);
+      }, 1500);
+    } catch (error) {
+      console.error("Error rejecting document:", error);
+      toast.error("Failed to reject document", {
+        closeButton: true,
+        autoClose: 1500,
+        style: {
+          textAlign: 'center'
+        }
+      });
+    } finally {
+      setRejecting(false);
+    }
+  };
+
   useEffect(() => {
     if (draftId === "new") {
       return;
@@ -1933,9 +2135,116 @@ const FTSCreatePageTemplate = () => {
     else {
       loadData(draftId);
     }
-  }, [draftId])
+    // loadData intentionally reads the current route mode/version.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId, versionPreview, versionNumber])
+
+  const resolveWithdrawnDraft = async (reshare, options = {}) => {
+    const { silent = false } = options;
+    try {
+      const response = await fetch(`${process.env.REACT_APP_URL}/api/ftsDrafts/templates/resolveWithdrawn/${loadedIDRef.current}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({ reshare }),
+      });
+
+      if (!response.ok) throw new Error("Failed to update draft");
+
+      if (!silent) {
+        toast.success(
+          reshare
+            ? `Draft reshared with previous collaborators.`
+            : `Draft has not been reshared with previous collaborators.`,
+          {
+            closeButton: true,
+            autoClose: 1500,
+            style: {
+              textAlign: 'center'
+            }
+          }
+        );
+      }
+
+      // Refresh so userIDs/share role/etc. reflect the server's decision.
+      loadData(draftId);
+    } catch (error) {
+      console.error("Error resolving withdrawn draft:", error);
+      if (!silent) {
+        toast.error("Failed to update draft", {
+          closeButton: true,
+          autoClose: 1500,
+          style: {
+            textAlign: 'center'
+          }
+        });
+      }
+    } finally {
+      setShowReshareDraft(false);
+    }
+  };
+
+  const handleReshareDraft = () => resolveWithdrawnDraft(true);
+  const handleDoNotReshareDraft = () => resolveWithdrawnDraft(false);
+
+  const formatRejectDate = (dateValue) => {
+    if (!dateValue) return "N/A";
+    const parsed = new Date(dateValue);
+    if (isNaN(parsed.getTime())) return "N/A";
+
+    const datePart = parsed.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    const timePart = parsed.toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+
+    return `${datePart}`;
+  };
+
+  const resolveRejectedDraft = async () => {
+    try {
+      const response = await fetch(`${process.env.REACT_APP_URL}/api/ftsDrafts/templates/resolveRejected/${loadedIDRef.current}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
+      });
+
+      if (!response.ok) throw new Error("Failed to update draft");
+
+      setShowRejectReasonView(false);
+      setIsRejected(false);
+      setReadOnly(false);
+
+      // Regardless of whether this draft was ever withdrawn, the owner now
+      // needs to decide whether to keep working with the previous
+      // collaborators — unless there's no one to reshare with in the first
+      // place (same guard used for withdrawn drafts).
+      setShowReshareDraft(userIDsRef.current.length > 1);
+    } catch (error) {
+      console.error("Error resolving rejected draft:", error);
+      toast.error("Failed to update draft", {
+        closeButton: true,
+        autoClose: 1500,
+        style: {
+          textAlign: 'center'
+        }
+      });
+    }
+  };
+
+  const handleReviewRejectedDraft = () => resolveRejectedDraft();
 
   const releaseLock = async () => {
+    if (versionPreview) return true;
     if (!loadedIDRef.current) return true;
 
     try {
@@ -1966,7 +2275,7 @@ const FTSCreatePageTemplate = () => {
     setIsSaveConfirmOpen(true);
   };
 
-  const requiresSavePrompt = () => !readOnly && !!loadedIDRef.current && isDirtyRef.current;
+  const requiresSavePrompt = () => !versionPreview && !readOnly && !!loadedIDRef.current && isDirtyRef.current;
 
   // Skips the save-confirmation popup entirely: releases the lock (so the
   // document isn't left checked out) and runs the pending navigation
@@ -2100,22 +2409,30 @@ const FTSCreatePageTemplate = () => {
               <FontAwesomeIcon icon={faArrowLeft} onClick={handleBack} title="Back" />
             </div>
 
+            {!versionPreview && !readOnly && userIDs.length > 1 && (
+              <div className="burger-menu-icon-risk-create-page-1">
+                {isSavingVersion ? (
+                  <FontAwesomeIcon icon={faSpinner} spin title="Saving Version" />
+                ) : (
+                  <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={handleSaveVersion} title="Save As New Version">
+                    <FontAwesomeIcon icon={faSave} />
+                    <FontAwesomeIcon
+                      icon={faPen}
+                      transform="shrink-6 down-5 right-7"
+                      color="gray"
+                    />
+                  </span>
+                )}
+              </div>
+            )}
+
             {!readOnly && (<div className="burger-menu-icon-risk-create-page-1">
               <FontAwesomeIcon icon={faFloppyDisk} onClick={handleSave} title="Save" />
             </div>)}
 
-            {!readOnly && (
+            {(
               <div className="burger-menu-icon-risk-create-page-1">
-                <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={openSaveAs} title="Save As">
-                  {/* base floppy-disk, full size */}
-                  <FontAwesomeIcon icon={faSave} />
-                  {/* pen, shrunk & nudged down/right into corner */}
-                  <FontAwesomeIcon
-                    icon={faPen}
-                    transform="shrink-6 down-5 right-7"
-                    color="gray"   /* or whatever contrast you need */
-                  />
-                </span>
+                <FontAwesomeIcon icon={faCopy} onClick={openSaveAs} title="Create Copy" />
               </div>
             )}
 
@@ -2144,36 +2461,57 @@ const FTSCreatePageTemplate = () => {
             {(inApproval || inReview) && !readOnly && canIn(access, "FTS", ["systemAdmin", "contributor"]) && (<div className="burger-menu-icon-risk-create-page-1">
               <FontAwesomeIcon style={{ color: "#7EAC89" }} icon={faCheckCircle} className={`${(!loadedID) ? "disabled-share" : ""}`} onClick={handleApproveClick} title="Approve Draft" />
             </div>)}
+
+            {(inApproval || inReview) && !readOnly && canIn(access, "FTS", ["systemAdmin", "contributor"]) && (<div className="burger-menu-icon-risk-create-page-1">
+              <FontAwesomeIcon style={{ color: "#CB6F6F" }} icon={faTimesCircle} className={`${(!loadedID) ? "disabled-share" : ""}`} onClick={handleRejectClick} title="Reject Document" />
+            </div>)}
           </div>
 
           {/* This div creates the space in the middle */}
           <div className="spacer"></div>
 
           {/* Container for right-aligned icons */}
-          <TopBarDD refreshable={true} canIn={canIn} access={access} menu={"1"} create={true} onHome={handleHomeNav} refreshable={false} />
+          <TopBarDD refreshable={false} canIn={canIn} access={access} menu={"1"} create={true} onHome={handleHomeNav} />
 
         </div>
 
-        {(!isViewer && !readOnly && (inApproval || inReview)) && (<div className="input-row">
+        {isRejected && (<div className="input-row">
+          <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#CB6F6F", color: "white", fontWeight: "bold" }}>
+            This document is in Read Only Mode as it has been rejected and requires document owner intervention.
+          </div>
+        </div>)}
+
+        {(!versionPreview && !isViewer && !readOnly && (inApproval || inReview)) && (<div className="input-row">
           <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#7EAC89", color: "white", fontWeight: "bold" }}>
             To approve this template, click on the green circle above.
           </div>
         </div>)}
 
-        {(isViewer && readOnly) && (<div className="input-row">
+        {(!versionPreview && isViewer && readOnly && !isRejected) && (<div className="input-row">
           <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#FFFF89", color: "black", fontWeight: "bold" }}>
             View-only access. Please contact the owner to request edit access.
           </div>
         </div>)}
 
         <div className={`scrollable-box`} ref={scrollBoxRef}>
-          {(!isViewer && readOnly && !inReview && !inApproval) && (<div className="input-row">
+          {versionPreview && versionInfo && (
+            <div className="input-row">
+              <div
+                className="input-box-aim-cp"
+                style={{ marginBottom: "10px", background: "#002060", color: "white", fontWeight: "bold" }}
+              >
+                Viewing {versionInfo.label} - read only historical version.
+              </div>
+            </div>
+          )}
+
+          {(!versionPreview && !isViewer && readOnly && !inReview && !inApproval && !isRejected) && (<div className="input-row">
             <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#CB6F6F", color: "white", fontWeight: "bold" }}>
               The draft is in Read Only Mode as the following user is modifying the draft: {lockUser}
             </div>
           </div>)}
 
-          {(!isViewer && readOnly && (inReview || inApproval)) && (<div className="input-row">
+          {(!versionPreview && !isViewer && readOnly && (inReview || inApproval) && !isRejected) && (<div className="input-row">
             <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#FFFF89", color: "black", fontWeight: "bold" }}>
               This template is currently in the approval process
             </div>
@@ -2388,11 +2726,21 @@ const FTSCreatePageTemplate = () => {
           triggerType={saveConfirmTrigger}
         />
       )}
+      {rejectState && (<RejectReason isOpen={rejectState} onClose={closeRejectPopup} onSubmit={rejectDraft} loading={rejecting} />)}
       {isSaving && (
         <SavingInProgress />
       )}
       {isPublishing && (
         <PublishingInProgress />
+      )}
+      {showReshareDraft && (<ReshareDraftPopup reshare={handleReshareDraft} doNotReshare={handleDoNotReshareDraft} />)}
+      {showRejectReasonView && (
+        <RejectReasonView
+          rejectorName={rejectionInfo.rejectorName}
+          rejectDate={formatRejectDate(rejectionInfo.rejectDate)}
+          rejectionReason={rejectionInfo.rejectionMessage}
+          reviewDocument={handleReviewRejectedDraft}
+        />
       )}
     </div>
   );

@@ -236,6 +236,19 @@ import InductionApprovalsPage from './components/VisitorsInduction/InductionCrea
 import OnlineTrainingApprovalsPage from './components/OnlineTrainingModule/OnlineTrainingApprovalsPage';
 import CreateRevisionPage from './components/DocumentCreationPages/CreateRevisionPage';
 import RiskRevisionPage from './components/RiskRelated/RiskRevisionPage';
+import UnderRevisionTemplateDocuments from './components/FieldTracking/UnderRevisionTemplateDocuments';
+import GeneratedInductionInfoRevision from './components/VisitorsInduction/InductionCreation/GeneratedInductionInfoRevision';
+import OnlineTrainingRevision from './components/OnlineTrainingModule/OnlineTrainingRevision';
+import VersionHistoryPage from './components/DocumentCreationPages/VersionHistoryPage';
+import VersionPreviewPage from './components/DocumentCreationPages/VersionPreviewPage';
+import RiskVersionHistoryPage from './components/RiskAssessmentPages/RiskVersionHistoryPage';
+import RiskVersionPreviewPage from './components/RiskAssessmentPages/RiskVersionPreviewPage';
+import InductionVersionHistoryPage from './components/VisitorsInduction/InductionCreation/InductionVersionHistoryPage';
+import OnlineTrainingVersionHistoryPage from './components/OnlineTrainingModule/OnlineTrainingVersionHistoryPage';
+import TrainingVersionPreviewPage from './components/VisitorsInduction/InductionCreation/TrainingVersionPreviewPage';
+import FTSVersionHistoryPage from './components/FieldTracking/FTSVersionHistoryPage';
+import SignedOffPreviewDDS from './components/DocumentCreationPages/SignedOffPreviewDDS';
+import SignedOffPreviewRMS from './components/RiskRelated/SignedOffPreviewRMS';
 
 const AUTO_LOGOUT_TIME = 45 * 60 * 1000;
 const WARNING_TIME = 5 * 60 * 1000;
@@ -538,6 +551,20 @@ function App() {
         <Route path="FrontendDMS/onlineTrainingApprovals" element={<OnlineTrainingApprovalsPage />} />
         <Route path="FrontendDMS/documentDevelopmentRevisions/:type" element={<CreateRevisionPage />} />
         <Route path="FrontendDMS/riskManagementRevisions/:type" element={<RiskRevisionPage />} />
+        <Route path="FrontendDMS/fieldTemplateRevision" element={<UnderRevisionTemplateDocuments />} />
+        <Route path="FrontendDMS/inductionRevisionInfo" element={<GeneratedInductionInfoRevision />} />
+        <Route path="FrontendDMS/trainingRevisionInfo" element={<OnlineTrainingRevision />} />
+        <Route path="FrontendDMS/ddsDraftHistory/:type/:id" element={isMobile ? <Navigate to="/mobileHome" /> : <VersionHistoryPage />} />
+        <Route path="FrontendDMS/documentVersionPreview/:type/:id/:version" element={isMobile ? <Navigate to="/mobileHome" /> : <VersionPreviewPage />} />
+        <Route path="FrontendDMS/rmsDraftHistory/:type/:id" element={<RiskVersionHistoryPage />} />
+        <Route path="FrontendDMS/riskVersionPreview/:type/:id/:version" element={isMobile ? <Navigate to="/mobileHome" /> : <RiskVersionPreviewPage />} />
+        <Route path="FrontendDMS/tmsDraftHistory/induction/:id" element={<InductionVersionHistoryPage />} />
+        <Route path="FrontendDMS/tmsDraftHistory/onlineTraining/:id" element={<OnlineTrainingVersionHistoryPage />} />
+        <Route path="FrontendDMS/tmsDraftVersionPreview/:type/:id/:version" element={isMobile ? <Navigate to="/mobileHome" /> : <TrainingVersionPreviewPage />} />
+        <Route path="FrontendDMS/ftsDraftHistory/:type/:id" element={<FTSVersionHistoryPage />} />
+        <Route path="FrontendDMS/ftsDraftVersionPreview/:type/:id/:version" element={<FTSCreatePageTemplate versionPreview />} />
+        <Route path="FrontendDMS/ddsSignedOffPreview/:type/:id" element={<SignedOffPreviewDDS />} />
+        <Route path="FrontendDMS/rmsSignedOffPreview/:type/:id" element={<SignedOffPreviewRMS />} />
 
         {/* Mobile Routes */}
         <Route path='FrontendDMS/mobileLogin' element={!isMobile ? <Navigate to="FrontendDMS/" /> : <LoginPageMobile />} />

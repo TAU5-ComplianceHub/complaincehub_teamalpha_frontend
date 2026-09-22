@@ -8,8 +8,10 @@ import { jwtDecode } from 'jwt-decode';
 import { toast, ToastContainer } from "react-toastify";
 import TopBar from "../Notifications/TopBar";
 import DeletePopup from "../FileInfo/DeletePopup";
+import StartReviewPopup from "../Popups/StartReviewPopup";
 import PopupMenuOnlineTraining from "./PopupMenuOnlineTraining";
 import PublishedOnlineTrainingPreviewPage from "./PublishedOnlineTrainingPreviewPage";
+import { getCurrentUser, canIn, isAdmin } from "../../utils/auth";
 
 const OnlineTrainingPublished = () => {
     const [files, setFiles] = useState([]); // State to hold the file data
@@ -26,6 +28,8 @@ const OnlineTrainingPublished = () => {
     const [isSidebarVisible, setIsSidebarVisible] = useState(false);
     const [isPreview, setIsPreview] = useState(false);
     const [previewID, setPreviewID] = useState(false);
+    const [fileToReview, setFileToReview] = useState(null);
+    const [reviewLoading, setReviewLoading] = useState(false);
 
     // --- Unified Sort Configuration ---
     const DEFAULT_SORT = { colId: "nr", direction: "asc" };
@@ -109,6 +113,15 @@ const OnlineTrainingPublished = () => {
         setIsPreview(false);
     };
 
+    const openReviewPopup = (id) => {
+        setFileToReview(id);
+        setHoveredFileId(null);
+    };
+
+    const closeReviewPopup = () => {
+        if (!reviewLoading) setFileToReview(null);
+    };
+
     const fileDelete = (id, fileName) => {
         setFileToDelete(id);
         setIsModalOpen(true);
@@ -175,6 +188,9 @@ const OnlineTrainingPublished = () => {
 
     const navigate = useNavigate();
 
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "TMS", ["systemAdmin"]);
+
     useEffect(() => {
         const storedToken = localStorage.getItem('token');
         if (storedToken) {
@@ -188,11 +204,13 @@ const OnlineTrainingPublished = () => {
         if (token) {
             fetchFiles();
         }
-    }, [token]);
+    }, [token, isSystemAdmin]);
 
     // Fetch files from the API
     const fetchFiles = async () => {
-        const route = `/api/onlineTrainingCourses/publishedDocs`;
+        const route = isSystemAdmin
+            ? `/api/onlineTrainingCourses/publishedDocs?isAdmin=true`
+            : `/api/onlineTrainingCourses/publishedDocs`;
         try {
             const response = await fetch(`${process.env.REACT_APP_URL}${route}`, {
                 headers: {
@@ -207,6 +225,49 @@ const OnlineTrainingPublished = () => {
             setFiles(data);
         } catch (error) {
             setError(error.message);
+        }
+    };
+
+    const startReview = async () => {
+        if (!fileToReview || reviewLoading) return;
+
+        try {
+            setReviewLoading(true);
+            const response = await fetch(
+                `${process.env.REACT_APP_URL}/api/onlineTrainingCourses/start-review/${fileToReview}`,
+                {
+                    method: "PATCH",
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                }
+            );
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(data.error || data.message || "Failed to start the review");
+            }
+
+            setFiles(currentFiles => currentFiles.map(file =>
+                file._id === fileToReview
+                    ? { ...file, documentStatus: "In Review" }
+                    : file
+            ));
+            setFileToReview(null);
+
+            toast.success(
+                data.message || "Document has been created in the Under Revision folder.",
+                { autoClose: 2000, closeButton: false }
+            );
+            await fetchFiles();
+        } catch (error) {
+            console.error("Error starting course review:", error);
+            toast.error(error.message || "Failed to start the review", {
+                autoClose: 3000,
+                closeButton: false
+            });
+        } finally {
+            setReviewLoading(false);
         }
     };
 
@@ -242,7 +303,7 @@ const OnlineTrainingPublished = () => {
         if (colId === "nr") return [String(index + 1)];
 
         // 2. Simple Strings & Dates
-        if (colId === "name") return [removeFileExtension(row.formData.courseTitle)];
+        if (colId === "name") return [(row.formData.courseTitle)];
         if (colId === "version") return [String(row.version)];
         if (colId === "firstPublishedBy") return [row.publisher?.username || "N/A"];
         if (colId === "firstPublishedDate") return [formatDate(row.datePublished)];
@@ -424,7 +485,7 @@ const OnlineTrainingPublished = () => {
             td: (file) => (
                 <div className="popup-anchor">
                     <span>
-                        {removeFileExtension(file.formData.courseTitle)}
+                        {(file.formData.courseTitle)}
                     </span>
 
                     {(hoveredFileId === file._id) && (
@@ -436,7 +497,9 @@ const OnlineTrainingPublished = () => {
                             setHoveredFileId={setHoveredFileId}
                             id={file._id}
                             openPreview={openPreview}
+                            openReviewPopup={openReviewPopup}
                             undoRetakeChoice={undoRetakeChoice}
+                            isCreate={true}
                         />
                     )}
                 </div>
@@ -1075,6 +1138,13 @@ const OnlineTrainingPublished = () => {
 
             {isModalOpen && (<DeletePopup closeModal={closeModal} deleteFile={deleteFile} isTrashView={false} loading={loading} selectedFileName={selectedFileName} />)}
             {isPreview && (<PublishedOnlineTrainingPreviewPage draftID={previewID} closeModal={closePreview} />)}
+            {fileToReview && (
+                <StartReviewPopup
+                    startReview={startReview}
+                    cancel={closeReviewPopup}
+                    loading={reviewLoading}
+                />
+            )}
             <ToastContainer />
         </div>
     );

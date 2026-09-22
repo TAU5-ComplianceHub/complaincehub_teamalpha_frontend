@@ -482,7 +482,7 @@ const ScheduleTaskPopupFTS = ({
                                 <div className="ibra-popup-page-column-half">
                                     <div className="cea-popup-page-component-wrapper">
                                         <div className="ibra-popup-page-form-group">
-                                            <label>Discipline</label>
+                                            <label>Department</label>
                                             <input
                                                 type="text"
                                                 value={discipline}

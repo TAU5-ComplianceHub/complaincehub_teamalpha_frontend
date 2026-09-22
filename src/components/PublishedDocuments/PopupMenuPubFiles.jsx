@@ -62,7 +62,7 @@ const PopupMenuPubFiles = ({ isOpen, setHoveredFileId, openDownloadModal, file, 
                     {false && (<ul>
                         <li onClick={() => openDownloadModal(file._id, file.fileName)}>Download</li>
                     </ul>)}
-                    {type !== "dont" && (
+                    {false && type !== "dont" && (
                         <ul>
                             <li onClick={() => navigate(route)}>Review</li>
                         </ul>

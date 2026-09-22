@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload, faTrash, faSearch, faX, faFilter, faArrowLeft, faCaretRight, faCaretLeft } from '@fortawesome/free-solid-svg-icons';
 import TopBar from "../Notifications/TopBar";
 import { toast, ToastContainer } from "react-toastify";
+import { getCurrentUser, canIn, isAdmin } from "../../utils/auth";
 
 // Same shell as ApprovalsPage (sidebar, search, type-based routing, excel
 // filtering) but the table itself is built off the same "column config map"
@@ -24,6 +25,9 @@ const CreateRevisionPage = () => {
     const [userID, setUserID] = useState('');
     const navigate = useNavigate();
     const { type } = useParams();
+
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "DDS", ["systemAdmin"]);
 
     // --- Unified Sort (same shape as GeneratedFileInfo) ---
     const DEFAULT_SORT = { colId: "nr", direction: "asc" };
@@ -56,7 +60,7 @@ const CreateRevisionPage = () => {
             procedure: {
                 icon: `${process.env.PUBLIC_URL}/proceduresDMSInverted.svg`,
                 label: "Under Revision",
-                loadRoute: `${process.env.REACT_APP_URL}/api/fileGenDocs/underRevisionDrafts`,
+                loadRoute: (userID) => `${process.env.REACT_APP_URL}/api/fileGenDocs/underRevisionDrafts/${userID}`,
                 rowClickRoute: (draftId) => `/FrontendDMS/review/${draftId}`,
                 draftsRoute: `/FrontendDMS/documentDevelopmentDrafts/procedure`,
             },
@@ -64,15 +68,15 @@ const CreateRevisionPage = () => {
             standard: {
                 icon: `${process.env.PUBLIC_URL}/standardsDMSInverted.svg`,
                 label: "Under Revision",
-                loadRoute: `${process.env.REACT_APP_URL}/api/fileGenDocs/standard/underRevisionDrafts`,
-                rowClickRoute: (draftId) => `/reviewStandard/${draftId}/standard`,
+                loadRoute: (userID) => `${process.env.REACT_APP_URL}/api/fileGenDocs/standard/underRevisionDrafts/${userID}`,
+                rowClickRoute: (draftId) => `/FrontendDMS/reviewStandard/${draftId}/standard`,
                 draftsRoute: `/FrontendDMS/documentDevelopmentDrafts/standard`,
             },
 
             special: {
                 icon: `${process.env.PUBLIC_URL}/specialInstInverted.svg`,
                 label: "Under Revision",
-                loadRoute: `${process.env.REACT_APP_URL}/api/fileGenDocs/special/underRevisionDrafts`,
+                loadRoute: (userID) => `${process.env.REACT_APP_URL}/api/fileGenDocs/special/underRevisionDrafts/${userID}`,
                 rowClickRoute: (draftId) => `/FrontendDMS/reviewSpecial/${draftId}/special`,
                 draftsRoute: `/FrontendDMS/documentDevelopmentDrafts/special`,
             },
@@ -124,7 +128,7 @@ const CreateRevisionPage = () => {
     // come from this single source of truth.
     const allColumns = [
         { id: "nr", title: "Nr", thClass: "gen-th ibraGenNr", tdClass: "cent-values-gen gen-point", td: (f, i) => i + 1 },
-        { id: "name", title: "Document Name", thClass: "gen-th ibraGenFN", tdClass: "gen-point", td: (f) => removeFileExtension(f.formData?.title) },
+        { id: "name", title: "Document Name", thClass: "gen-th ibraGenFN", tdClass: "gen-point", td: (f) => (f.formData?.title) },
         { id: "version", title: "Version", thClass: "gen-th ibraGenVer", tdClass: "cent-values-gen gen-point", td: (f) => f.formData?.version },
         { id: "status", title: "Document Status", thClass: "gen-th ibraGenStatus", tdClass: "cent-values-gen gen-point", td: (f) => f.documentStatus || "N/A" },
         { id: "firstPublishedBy", title: "First Published By", thClass: "gen-th ibraGenPB", tdClass: "cent-values-gen gen-point", td: (f) => f.publisher?.username || "N/A" },
@@ -157,7 +161,7 @@ const CreateRevisionPage = () => {
     // and the excel-style filter popup, keyed off the same column ids.
     const getFilterValuesForCell = (row, colId, index) => {
         if (colId === "nr") return [String(index + 1)];
-        if (colId === "name") return [removeFileExtension(row.formData?.title)];
+        if (colId === "name") return [(row.formData?.title)];
         if (colId === "version") return [String(row.formData?.version)];
         if (colId === "status") return [row.documentStatus || "N/A"];
         if (colId === "firstPublishedBy") return [row.publisher?.username || "N/A"];
@@ -217,7 +221,10 @@ const CreateRevisionPage = () => {
         setIsLoading(true);
         setShowNoDrafts(false);
         const token = localStorage.getItem("token");
-        const route = pageConfig.loadRoute;
+        const baseRoute = pageConfig.loadRoute(userID);
+        const route = isSystemAdmin
+            ? `${baseRoute}?isAdmin=true`
+            : baseRoute;
         try {
             const response = await fetch(route, {
                 method: "GET",
@@ -234,9 +241,10 @@ const CreateRevisionPage = () => {
     };
 
     useEffect(() => {
+        if (!userID) return;
         fetchUnderRevisionDocuments();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pageConfig]);
+    }, [pageConfig, isSystemAdmin, userID]);
 
     useEffect(() => {
         if (!isLoading && drafts.length === 0) {

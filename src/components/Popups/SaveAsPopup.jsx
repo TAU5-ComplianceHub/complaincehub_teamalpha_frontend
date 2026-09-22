@@ -81,7 +81,7 @@ const SaveAsPopup = ({ readonlyTitle = false, onClose, saveAs, current, type, us
         <div className="saveAs-popup-overlay">
             <div className="saveAs-popup-content">
                 <div className="saveAs-date-header">
-                    <h2 className="saveAs-date-title">Save Draft As</h2>
+                    <h2 className="saveAs-date-title">Create Draft Copy</h2>
                     <button className="saveAs-date-close" onClick={onClose} title="Close Popup">×</button>
                 </div>
 
@@ -101,7 +101,7 @@ const SaveAsPopup = ({ readonlyTitle = false, onClose, saveAs, current, type, us
                 </div>
 
                 <div className="saveAs-date-buttons">
-                    <button onClick={handleSave} className="saveAs-date-button">Save Draft</button>
+                    <button onClick={handleSave} className="saveAs-date-button">Create Copy</button>
                 </div>
             </div>
         </div>

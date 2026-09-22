@@ -40,6 +40,7 @@ const UserManagement = () => {
     const [isDeletedView, setIsDeletedView] = useState(false);
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
     const [passwordUser, setPasswordUser] = useState(null);
+    const [isCreatingUser, setIsCreatingUser] = useState(false);
 
     const openPasswordModal = (user) => {
         setPasswordUser(user);
@@ -69,7 +70,7 @@ const UserManagement = () => {
             }
 
             toast.success("Password Updated", {
-                autoClose: 800
+                autoClose: 1500
             });
 
             setIsPasswordModalOpen(false);
@@ -126,7 +127,7 @@ const UserManagement = () => {
         if (formError) {
             toast.error(formError, {
                 closeButton: false,
-                autoClose: 800,
+                autoClose: 1500,
                 style: {
                     textAlign: 'center'
                 }
@@ -205,6 +206,13 @@ const UserManagement = () => {
     });
 
     const createUser = async () => {
+        // Guards against double-submission (double-click, or Enter + click landing
+        // in the same tick before the button's disabled state re-renders). Without
+        // this, two requests can go out for one click: one succeeds, the duplicate
+        // gets rejected by the server (e.g. duplicate email/username), and its error
+        // toast pops up alongside the success toast, which is what looked "random".
+        if (isCreatingUser) return;
+
         const payload = normalizeUserPayload(newUser);
 
         console.log(payload);
@@ -213,6 +221,8 @@ const UserManagement = () => {
             setFormError('Username, email, role and position are required.');
             return;
         }
+
+        setIsCreatingUser(true);
 
         try {
             const response = await fetch(`${process.env.REACT_APP_URL}/api/user/create`, {
@@ -224,21 +234,36 @@ const UserManagement = () => {
                 body: JSON.stringify(payload)
             });
 
-            if (!response.ok) throw new Error('Failed to create user');
+            const message = await response.text();
 
-            toast.success("User account created.", {
+            if (!response.ok) {
+                throw new Error(message || 'Failed to create user');
+            }
+
+            toast.success(message || "User account created.", {
                 closeButton: false,
-                autoClose: 800,
+                autoClose: 1500,
                 style: { textAlign: 'center' }
             });
 
             setIsModalOpen(false);
-            setNewUser({ username: '', email: '', role: '', reportingTo: '', department: '', designation: '' });
+            setNewUser({
+                username: '',
+                email: '',
+                role: '',
+                reportingTo: '',
+                department: '',
+                designation: ''
+            });
+
             setFormError('');
             fetchUsers();
+
         } catch (error) {
             console.error('Error creating user:', error);
-            setFormError('Failed to create user.');
+            setFormError(error.message);
+        } finally {
+            setIsCreatingUser(false);
         }
     };
 
@@ -283,7 +308,7 @@ const UserManagement = () => {
 
             toast.success("User restored successfully.", {
                 closeButton: false,
-                autoClose: 800,
+                autoClose: 1500,
                 style: { textAlign: 'center' }
             });
 
@@ -307,7 +332,7 @@ const UserManagement = () => {
 
             toast.success("User permanently deleted.", {
                 closeButton: false,
-                autoClose: 800,
+                autoClose: 1500,
                 style: { textAlign: 'center' }
             });
 
@@ -333,7 +358,7 @@ const UserManagement = () => {
 
             toast.success("User deleted successfully.", {
                 closeButton: false,
-                autoClose: 800,
+                autoClose: 1500,
                 style: { textAlign: 'center' }
             });
 
@@ -351,7 +376,7 @@ const UserManagement = () => {
         if (!payload.username || !payload.role || !payload.designation) {
             toast.error('Username, role and position are required.', {
                 closeButton: false,
-                autoClose: 800,
+                autoClose: 1500,
             });
             return;
         }
@@ -405,6 +430,7 @@ const UserManagement = () => {
                         <img src={`${process.env.PUBLIC_URL}/CH_Logo.svg`} alt="Logo" className="logo-img-um" onClick={() => navigate('/FrontendDMS/home')} title="Home" />
                         <p className="logo-text-um">Admin Page</p>
                     </div>
+
 
                     {!isDeletedView && (<div className="filter-fih">
                         <div className="button-container-dept">
@@ -564,17 +590,20 @@ const UserManagement = () => {
                 setNewUser={setNewUser}
                 current={access}
                 isAdmin={isAdmin}
+                isCreatingUser={isCreatingUser}
             />
 
-            {isDeleteModalOpen && (
-                <DeletePopupUserManagement
-                    deleteUser={isDeletedView ? permanentlyDeleteUser : deleteUser}
-                    department={"none"}
-                    form={isDeletedView ? "deleted" : "user"}
-                    setIsDeleteModalOpen={setIsDeleteModalOpen}
-                    userToDelete={userToDelete}
-                />
-            )}
+            {
+                isDeleteModalOpen && (
+                    <DeletePopupUserManagement
+                        deleteUser={isDeletedView ? permanentlyDeleteUser : deleteUser}
+                        department={"none"}
+                        form={isDeletedView ? "deleted" : "user"}
+                        setIsDeleteModalOpen={setIsDeleteModalOpen}
+                        userToDelete={userToDelete}
+                    />
+                )
+            }
 
             <EditUserModal
                 isEditModalOpen={isEditModalOpen}
@@ -587,16 +616,18 @@ const UserManagement = () => {
                 isAdmin={isAdmin}
             />
 
-            {isPasswordModalOpen && (<ChangePasswordModal
-                isOpen={isPasswordModalOpen}
-                setIsOpen={setIsPasswordModalOpen}
-                changePassword={changePassword}
-                user={passwordUser}
-            />)}
+            {
+                isPasswordModalOpen && (<ChangePasswordModal
+                    isOpen={isPasswordModalOpen}
+                    setIsOpen={setIsPasswordModalOpen}
+                    changePassword={changePassword}
+                    user={passwordUser}
+                />)
+            }
 
             {isOpenBatch && (<BatchUploadUsers onClose={closeBatch} refresh={fetchUsers} />)}
             <ToastContainer />
-        </div>
+        </div >
     );
 };
 

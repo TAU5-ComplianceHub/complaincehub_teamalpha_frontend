@@ -12,8 +12,12 @@ import TopBar from "../../Notifications/TopBar";
 import DeletePopup from "../../FileInfo/DeletePopup";
 import { ToastContainer } from "react-toastify";
 import RiskSignedOffUploadPopup from "../SignedOffDocuments/RiskSignedOffUploadPopup";
+import { getCurrentUser, isAdmin, canIn } from "../../../utils/auth";
 
 const RiskDocumentsBLRA = () => {
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "RMS", ["systemAdmin"]);
+
     const [files, setFiles] = useState([]);
     const [error, setError] = useState(null);
     const [token, setToken] = useState('');
@@ -176,10 +180,12 @@ const RiskDocumentsBLRA = () => {
 
     useEffect(() => {
         if (token) fetchFiles();
-    }, [token]);
+    }, [token, isSystemAdmin]);
 
     const fetchFiles = async () => {
-        const route = `/api/fileGenDocs/blra/${userID}`;
+        const route = isSystemAdmin
+            ? `/api/fileGenDocs/blra/${userID}?isAdmin=true`
+            : `/api/fileGenDocs/blra/${userID}`;
         try {
             const response = await fetch(`${process.env.REACT_APP_URL}${route}`, {
                 headers: { /* 'Authorization': `Bearer ${token}` */ }
@@ -221,7 +227,7 @@ const RiskDocumentsBLRA = () => {
 
     const getFilterValuesForCell = (row, colId, index) => {
         if (colId === "nr") return [String(index + 1)];
-        if (colId === "name") return [removeFileExtension(row.formData.title)];
+        if (colId === "name") return [(row.formData.title)];
         if (colId === "version") return [String(row.formData.version)];
         if (colId === "firstPublishedBy") return [row.publisher?.username || "N/A"];
         if (colId === "firstPublishedDate") return [formatDate(row.datePublished)];

@@ -6,14 +6,23 @@ import { jwtDecode } from 'jwt-decode';
 import PopupMenuPubFiles from "../../PublishedDocuments/PopupMenuPubFiles";
 import TopBar from "../../Notifications/TopBar";
 import DeletePopup from "../../FileInfo/DeletePopup";
+import StartReviewPopup from "../../Popups/StartReviewPopup";
+import SignedOffDownloadConfirmPopup from "../../RiskRelated/SignedOffDocuments/SignedOffDownloadConfirmPopup";
 import PopupMenuSignedOffFiles from "./PopupMenuSignedOffFiles";
+import DownloadPopupMenuSignedOffFiles from "../../RiskRelated/SignedOffDocuments/DownloadPopupMenuSignedOffFiles";
 import { toast, ToastContainer } from "react-toastify";
+import { getCurrentUser, isAdmin, canIn } from "../../../utils/auth";
 
 const SignedOffProcedures = () => {
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "DDS", ["systemAdmin"]);
+
     const [files, setFiles] = useState([]);
     const [error, setError] = useState(null);
     const [token, setToken] = useState('');
     const [hoveredFileId, setHoveredFileId] = useState(null);
+    const [hoveredDownloadId, setHoveredDownloadId] = useState(null);
+    const [downloadRequest, setDownloadRequest] = useState(null);
     const [loading, setLoading] = useState(false);
     const [userID, setUserID] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
@@ -23,6 +32,8 @@ const SignedOffProcedures = () => {
     const [selectedFileName, setSelectedFileName] = useState();
     const [uploadID, setUploadID] = useState("");
     const [uploadProcedurePDF, setUploadProcedurePDF] = useState(false);
+    const [fileToReview, setFileToReview] = useState(null);
+    const [reviewLoading, setReviewLoading] = useState(false);
 
     const openPDFUpload = (id) => {
         setUploadID(id);
@@ -72,15 +83,57 @@ const SignedOffProcedures = () => {
     const getStatus = (s) => (s?.toLowerCase() === 'published' ? 'Signed Off' : s);
 
     useEffect(() => { const t = localStorage.getItem('token'); if (t) { setToken(t); setUserID(jwtDecode(t).userId); } }, [navigate]);
-    useEffect(() => { if (token) fetchFiles(); }, [token]);
-    const fetchFiles = async () => { try { const r = await fetch(`${process.env.REACT_APP_URL}/api/fileGenDocs/signedOffProcedures/${userID}`); if (!r.ok) throw new Error('Failed'); const d = await r.json(); setFiles(d.files); console.log(d.files) } catch (e) { setError(e.message); } };
+    useEffect(() => { if (token) fetchFiles(); }, [token, isSystemAdmin]);
+    const fetchFiles = async () => {
+        const route = isSystemAdmin
+            ? `${process.env.REACT_APP_URL}/api/fileGenDocs/signedOffProcedures/${userID}?isAdmin=true`
+            : `${process.env.REACT_APP_URL}/api/fileGenDocs/signedOffProcedures/${userID}`;
+        try { const r = await fetch(route); if (!r.ok) throw new Error('Failed'); const d = await r.json(); setFiles(d.files); console.log(d.files) } catch (e) { setError(e.message); }
+    };
     const downloadFile = async (fileId, fileName) => { try { setLoading(true); const r = await fetch(`${process.env.REACT_APP_URL}/api/file/download/${fileId}`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error('Failed'); const blob = await r.blob(); const url = window.URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', fileName || 'doc.pdf'); document.body.appendChild(link); link.click(); link.parentNode.removeChild(link); } catch (e) { alert('Error'); } finally { setLoading(false); } };
+    // TODO: route to be provided later — placeholder handler for downloading the latest Word document
+    const downloadWordFile = async (fileName, cleanFileName) => {
+        try {
+            setLoading(true);
+            const r = await fetch(`${process.env.REACT_APP_URL}/api/file/generatedProcedureHistory`,
+                {
+                    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fileName })
+                });
+
+            if (!r.ok) throw new Error('Failed');
+            const blob = await r.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url; link.setAttribute('download', cleanFileName || 'document.docx');
+            document.body.appendChild(link);
+            link.click();
+            link.parentNode.removeChild(link);
+        } catch (e) {
+            alert('Error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const openDownloadConfirm = (file, type) => { setHoveredDownloadId(null); setDownloadRequest({ file, type }); };
+    const closeDownloadConfirm = () => { if (!loading) setDownloadRequest(null); };
+    const confirmDownloadAction = () => {
+        if (!downloadRequest) return;
+        const { file, type } = downloadRequest;
+        if (type === "word") {
+            downloadWordFile(file.azureFileName, file.fileName);
+        } else {
+            downloadFile(file.dmsId._id, file.dmsId.fileName);
+        }
+        setDownloadRequest(null);
+    };
     const removeFileExtension = (n) => n.replace(/\.[^/.]+$/, "");
 
     // Excel Logic
     const getFilterValuesForCell = (row, colId, index) => {
         if (colId === "nr") return [String(index + 1)];
-        if (colId === "name") return [removeFileExtension(row.formData.title)];
+        if (colId === "name") return [(row.formData.title)];
         if (colId === "version") return [String(row.formData.version)];
         if (colId === "status") return [getStatus(row.documentStatus)];
         if (colId === "firstPublishedBy") return [row.publisher?.username || "N/A"];
@@ -92,10 +145,21 @@ const SignedOffProcedures = () => {
     const openExcelFilterPopup = (colId, e) => { if (colId === "action") return; const th = e.target.closest("th"); const rect = th.getBoundingClientRect(); const vals = Array.from(new Set((files || []).flatMap((r, i) => getFilterValuesForCell(r, colId, i)))).sort((a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: "base" })); const existing = activeExcelFilters[colId]; setExcelSelected(new Set(existing && Array.isArray(existing) ? existing : vals)); setExcelSearch(""); setExcelFilter({ open: true, colId, anchorRect: rect, pos: { top: rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX, width: Math.max(220, rect.width) } }); };
     const toggleSort = (colId, direction) => setSortConfig(p => (p?.colId === colId && p?.direction === direction) ? DEFAULT_SORT : { colId, direction });
 
-    const reviewDocument = async (fileID) => {
-        let route = `${process.env.REACT_APP_URL}/api/docCreate/reviewSOProcedure/${fileID}`
+    const openReviewPopup = (id) => {
+        setFileToReview(id);
+        setHoveredFileId(null);
+    };
+
+    const closeReviewPopup = () => {
+        if (!reviewLoading) setFileToReview(null);
+    };
+
+    const startReview = async () => {
+        if (!fileToReview || reviewLoading) return;
+        let route = `${process.env.REACT_APP_URL}/api/docCreate/reviewSOProcedure/${fileToReview}`
 
         try {
+            setReviewLoading(true);
             const response = await fetch(`${route}`, {
                 method: 'POST',
                 headers: {
@@ -106,6 +170,7 @@ const SignedOffProcedures = () => {
                 throw new Error(response.error || 'Failed to upload file');
             }
 
+            setFileToReview(null);
             toast.success("Document Version Created in Pending Sign Off", {
                 closeButton: false,
                 autoClose: 1500,
@@ -116,6 +181,8 @@ const SignedOffProcedures = () => {
             })
         } catch (error) {
             setLoading(false);
+        } finally {
+            setReviewLoading(false);
         }
     }
 
@@ -154,7 +221,7 @@ const SignedOffProcedures = () => {
     const allColumns = [
         { id: "nr", title: "Nr", thClass: "gen-th ibraGenNr", tdClass: "cent-values-gen gen-point", td: (f, i) => i + 1 },
         {
-            id: "name", title: "Document Name", thClass: "gen-th ibraGenFN", tdClass: "gen-point", onCellClick: (f) => setHoveredFileId(hoveredFileId === f._id ? null : f._id), td: (f) => (<div className="popup-anchor"><span>{removeFileExtension(f.formData.title)}</span>{(hoveredFileId === f._id) && (
+            id: "name", title: "Document Name", thClass: "gen-th ibraGenFN", tdClass: "gen-point", onCellClick: (f) => setHoveredFileId(hoveredFileId === f._id ? null : f._id), td: (f) => (<div className="popup-anchor"><span>{(f.formData.title)}</span>{(hoveredFileId === f._id) && (
                 <PopupMenuSignedOffFiles file={f}
                     typeDoc={"procedure"}
                     risk={false}
@@ -162,7 +229,7 @@ const SignedOffProcedures = () => {
                     openDownloadModal={downloadFile}
                     setHoveredFileId={setHoveredFileId}
                     id={f._id}
-                    review={reviewDocument}
+                    review={openReviewPopup}
                 />)}</div>)
         },
         { id: "version", title: "Version", thClass: "gen-th ibraGenVer", tdClass: "cent-values-gen gen-point", td: (f) => f.formData.version },
@@ -178,12 +245,23 @@ const SignedOffProcedures = () => {
             tdClass: "cent-values-gen gen-point",
             td: (f) => (
                 <div className="action-buttons-fi">
-                    <button
-                        className="download-button-fi col-but-res"
-                        onClick={() => downloadFile(f.dmsId._id, f.dmsId.fileName)}
-                    >
-                        <FontAwesomeIcon icon={faDownload} title="Download" />
-                    </button>
+                    <div className="popup-anchor">
+                        <button
+                            className="download-button-fi col-but-res"
+                            onClick={() => setHoveredDownloadId(hoveredDownloadId === f._id ? null : f._id)}
+                        >
+                            <FontAwesomeIcon icon={faDownload} title="Download" />
+                        </button>
+                        {hoveredDownloadId === f._id && (
+                            <DownloadPopupMenuSignedOffFiles
+                                isOpen={true}
+                                setHoveredDownloadId={setHoveredDownloadId}
+                                file={f}
+                                onDownloadPDF={() => openDownloadConfirm(f, "pdf")}
+                                onDownloadWord={() => openDownloadConfirm(f, "word")}
+                            />
+                        )}
+                    </div>
                     <button
                         className="delete-button-fi col-but"
                         onClick={() => fileDelete(f._id, f.formData.title)}
@@ -518,6 +596,22 @@ const SignedOffProcedures = () => {
             )}
 
             {isModalOpen && (<DeletePopup closeModal={closeModal} deleteFile={deleteFile} isTrashView={false} loading={loading} selectedFileName={selectedFileName} />)}
+            {downloadRequest && (
+                <SignedOffDownloadConfirmPopup
+                    closeDownloadModal={closeDownloadConfirm}
+                    confirmDownload={confirmDownloadAction}
+                    downloadFileName={downloadRequest.type === "word" ? downloadRequest.file.fileName : downloadRequest.file.dmsId.fileName}
+                    downloadType={downloadRequest.type}
+                    loading={loading}
+                />
+            )}
+            {fileToReview && (
+                <StartReviewPopup
+                    startReview={startReview}
+                    cancel={closeReviewPopup}
+                    loading={reviewLoading}
+                />
+            )}
             <ToastContainer />
         </div>
     );

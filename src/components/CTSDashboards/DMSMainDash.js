@@ -844,7 +844,7 @@ const DMSMainDash = () => {
                                 <table className="mdash-table mdash-table--drilldown">
                                     <thead>
                                         <tr>
-                                            <FilterTh tableId="byDisc" colId="type" style={{ width: "40%" }}>Discipline</FilterTh>
+                                            <FilterTh tableId="byDisc" colId="type" style={{ width: "40%" }}>Department</FilterTh>
                                             <FilterTh tableId="byDisc" colId="valid" style={{ textAlign: "center", width: "12%" }} className="mdash-table-header--green">Valid</FilterTh>
                                             <FilterTh tableId="byDisc" colId="expiring" style={{ textAlign: "center", width: "12%" }} className="mdash-table-header--orange">Due For Review</FilterTh>
                                             <FilterTh tableId="byDisc" colId="expired" style={{ textAlign: "center", width: "12%" }} className="mdash-table-header--red">Review Overdue</FilterTh>

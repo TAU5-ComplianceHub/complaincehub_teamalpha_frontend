@@ -2,26 +2,33 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { jwtDecode } from 'jwt-decode';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faTrash, faX, faFilter, faArrowLeft, faCaretRight, faCaretLeft, faSearch } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faTrash, faX, faFilter, faArrowLeft, faCaretRight, faCaretLeft, faSearch, faFileArrowDown } from '@fortawesome/free-solid-svg-icons';
 import TopBar from "../../Notifications/TopBar";
 import { toast, ToastContainer } from "react-toastify";
 import RemoveFromApprovalPopup from "../../Popups/RemoveFromApprovalPopup";
+import { getCurrentUser, can, canIn, isAdmin } from "../../../utils/auth";
 
-// Same shell as InductionDrafts, but backed by the approval workflow:
-// induction drafts that are "In Approval" live here instead of in Saved
-// Drafts. Unlike Document Development / Risk Management, inductions only
-// have an approvers/approvalState flow (no reviewers), so there's a single
-// "Current Approver" column and no review-vs-approval branching.
+// Same shell as InductionDrafts, but backed by the approval workflow.
+// Development drafts and published-induction revisions share this table and
+// use different editor/removal routes. Inductions are approval-only, so there
+// is no reviewState/currentReviewer branch.
 // NOTE: named ApprovalsPage for now to match the pattern used elsewhere;
 // rename if this needs to be distinguished from the Online Training version.
 const LOAD_ROUTE = `${process.env.REACT_APP_URL}/api/visitorDrafts/reviewApprovalDrafts`;
-const REMOVE_APPROVAL_ROUTE = `${process.env.REACT_APP_URL}/api/visitorDrafts/remove-from-approval-draft`;
-const ROW_CLICK_ROUTE = (draftId) => `/FrontendDMS/inductionCreation/${draftId}`;
+const REMOVE_DRAFT_APPROVAL_ROUTE = `${process.env.REACT_APP_URL}/api/visitorDrafts/remove-from-approval-draft`;
+const REMOVE_REVISION_APPROVAL_ROUTE = `${process.env.REACT_APP_URL}/api/visitorDrafts/remove-from-approval-publishedDoc`;
+const DRAFT_ROW_CLICK_ROUTE = (draftId) => `/FrontendDMS/inductionCreation/${draftId}`;
+// Mirrors the canonical published-approval link used by backend notifications.
+const REVISION_ROW_CLICK_ROUTE = (documentId) => `/FrontendDMS/loginRedirect/TMS/approvePublished/${documentId}/null`;
 
 const InductionApprovalsPage = () => {
     const [drafts, setDrafts] = useState([]);
     const [query, setQuery] = useState('');
-    const [removeConfirm, setRemoveConfirm] = useState({ open: false, draftId: null });
+    const [removeConfirm, setRemoveConfirm] = useState({
+        open: false,
+        draftId: null,
+        workflowSource: null,
+    });
     const [isLoading, setIsLoading] = useState(true);
     const [showNoDrafts, setShowNoDrafts] = useState(false);
     const [removePopup, setRemovePopup] = useState(false);
@@ -32,6 +39,9 @@ const InductionApprovalsPage = () => {
     const [userID, setUserID] = useState('');
     const [removeLoading, setRemoveLoading] = useState(false);
     const navigate = useNavigate();
+
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "TMS", ["systemAdmin"]);
 
     // Excel Filter States
     const [excelFilter, setExcelFilter] = useState({
@@ -52,6 +62,10 @@ const InductionApprovalsPage = () => {
             setUserID(decodedToken.userId);
         }
     }, [navigate]);
+
+    const getRowClickRoute = (item) => item.workflowSource === "revision"
+        ? REVISION_ROW_CLICK_ROUTE(item._id)
+        : DRAFT_ROW_CLICK_ROUTE(item._id);
 
     const formatDateTime = (dateString) => {
         if (!dateString) return "Not Updated Yet";
@@ -151,15 +165,16 @@ const InductionApprovalsPage = () => {
 
     const closeRemove = () => {
         setRemovePopup(false);
-        setRemoveConfirm({ open: false, draftId: null });
+        setRemoveConfirm({ open: false, draftId: null, workflowSource: null });
     };
 
     const fetchReviewApprovalDrafts = async () => {
         setIsLoading(true);
         setShowNoDrafts(false);
         const token = localStorage.getItem("token");
+        const route = isSystemAdmin ? `${LOAD_ROUTE}?isAdmin=true` : LOAD_ROUTE;
         try {
-            const response = await fetch(LOAD_ROUTE, {
+            const response = await fetch(route, {
                 method: "GET",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
             });
@@ -175,7 +190,8 @@ const InductionApprovalsPage = () => {
 
     useEffect(() => {
         fetchReviewApprovalDrafts();
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isSystemAdmin]);
 
     useEffect(() => {
         if (!isLoading && drafts.length === 0) {
@@ -186,19 +202,27 @@ const InductionApprovalsPage = () => {
         }
     }, [isLoading, drafts]);
 
-    const confirmRemove = (draftId, draftTitle) => {
-        setRemoveConfirm({ open: true, draftId });
-        setTitle(draftTitle);
+    const confirmRemove = (item) => {
+        setRemoveConfirm({
+            open: true,
+            draftId: item._id,
+            workflowSource: item.workflowSource || "draft",
+        });
+        setTitle(item.formData?.courseTitle || "Visitor induction");
         setRemovePopup(true);
     };
 
     const handleRemoveApproval = async () => {
-        const { draftId } = removeConfirm;
+        const { draftId, workflowSource } = removeConfirm;
         if (!draftId) return;
+
+        const route = workflowSource === "revision"
+            ? REMOVE_REVISION_APPROVAL_ROUTE
+            : REMOVE_DRAFT_APPROVAL_ROUTE;
 
         try {
             setRemoveLoading(true);
-            const response = await fetch(REMOVE_APPROVAL_ROUTE, {
+            const response = await fetch(route, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -212,9 +236,11 @@ const InductionApprovalsPage = () => {
                 throw new Error(errText || "Failed to remove the draft from the approval process");
             }
 
-            // Removing from approval moves it out of this folder and back into
-            // Saved Drafts, so it simply drops out of this list.
-            setDrafts(prev => prev.filter(d => d._id !== draftId));
+            // Drafts return to Saved Drafts; revisions return to Under Revision.
+            setDrafts(prev => prev.filter((item) => !(
+                item._id === draftId &&
+                (item.workflowSource || "draft") === (workflowSource || "draft")
+            )));
 
             toast.success("Draft removed from the approval process");
 
@@ -226,7 +252,7 @@ const InductionApprovalsPage = () => {
             setRemoveLoading(false);
         }
 
-        setRemoveConfirm({ open: false, draftId: null });
+        setRemoveConfirm({ open: false, draftId: null, workflowSource: null });
         closeRemove();
     };
 
@@ -400,14 +426,20 @@ const InductionApprovalsPage = () => {
                             <tbody>
                                 {!isLoading && drafts.length > 0 && filteredDrafts.length > 0 && (
                                     displayDrafts.map((item, index) => {
-                                        const isPublisher = item.publisher && String(item.publisher) === String(userID);
+                                        const workflowOwnerId = item.workflowOwnerId
+                                            || item.publisher?._id
+                                            || item.publisher
+                                            || item.creator?._id
+                                            || item.creator;
+                                        const isWorkflowOwner = workflowOwnerId
+                                            && String(workflowOwnerId) === String(userID);
                                         const statusClass = getStatusClass(item.documentStatus);
                                         return (
                                             <tr
-                                                key={item._id}
+                                                key={`${item.workflowSource || "draft"}-${item._id}`}
                                                 style={{ fontSize: "14px" }}
                                                 className="load-draft-td"
-                                                onClick={() => navigate(ROW_CLICK_ROUTE(item._id))}
+                                                onClick={() => navigate(getRowClickRoute(item))}
                                             >
                                                 <td style={{ fontFamily: "Arial", textAlign: "center" }}>
                                                     {index + 1}
@@ -429,11 +461,11 @@ const InductionApprovalsPage = () => {
                                                     <button
                                                         className={"action-button-load-draft delete-button-load-draft"}
                                                         style={{ width: "100%" }}
-                                                        disabled={!isPublisher}
-                                                        title={isPublisher ? "Remove from approval process" : "Only the publisher can remove this document from the approval process"}
-                                                        onClick={(e) => { e.stopPropagation(); confirmRemove(item._id, item.formData?.courseTitle); }}
+                                                        disabled={!isWorkflowOwner}
+                                                        title={isWorkflowOwner ? "Withdraw from approval process" : "Only the publisher can remove this document from the approval process"}
+                                                        onClick={(e) => { e.stopPropagation(); confirmRemove(item); }}
                                                     >
-                                                        <FontAwesomeIcon icon={faTrash} title="Remove from approval process" />
+                                                        <FontAwesomeIcon icon={faFileArrowDown} title="Withdraw from approval process" />
                                                     </button>
                                                 </td>
                                             </tr>

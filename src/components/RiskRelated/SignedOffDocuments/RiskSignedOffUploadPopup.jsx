@@ -27,6 +27,9 @@ const RiskSignedOffUploadPopup = ({ onClose, docID, refresh, closeNavigate, type
     const [userID, setUserID] = useState('');
     const [errors, setErrors] = useState([]);
     const [usersList, setUsersList] = useState([]);
+    const [showConfirmChangesPopup, setShowConfirmChangesPopup] = useState(false);
+    const [showWordUploadPopup, setShowWordUploadPopup] = useState(false);
+    const [wordFile, setWordFile] = useState(null);
 
     useEffect(() => {
         const storedToken = localStorage.getItem("token");
@@ -147,7 +150,7 @@ const RiskSignedOffUploadPopup = ({ onClose, docID, refresh, closeNavigate, type
         return true;
     };
 
-    const handleFileUpload = async (e) => {
+    const handleFileUpload = async (updatedWordFile) => {
         if (!isFormValid()) return;
 
         const formData = new FormData();
@@ -161,6 +164,11 @@ const RiskSignedOffUploadPopup = ({ onClose, docID, refresh, closeNavigate, type
         formData.append('reviewDate', reviewDate);
         formData.append('reviewer', reviewer);
         formData.append('approver', approver);
+
+        // Kept as its own field so the backend never confuses it with the signed off PDF ('file')
+        if (updatedWordFile) {
+            formData.append('wordDocument', updatedWordFile);
+        }
 
         try {
             setLoading(true);
@@ -197,6 +205,7 @@ const RiskSignedOffUploadPopup = ({ onClose, docID, refresh, closeNavigate, type
             setReviewDate('');
             setApprover('');
             setReviewer('');
+            setWordFile(null);
             setError(null);
 
             setLoading(false); // Reset loading state after response
@@ -230,15 +239,86 @@ const RiskSignedOffUploadPopup = ({ onClose, docID, refresh, closeNavigate, type
 
     const handleFileChange = (e) => {
         if (e.target.files && e.target.files.length > 0) {
-            handleFileSelect(e.target.files[0]);
+            const file = e.target.files[0];
+            const isPDF = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+
+            if (!isPDF) {
+                toast.error("Please select a PDF file", {
+                    closeButton: false,
+                    autoClose: 1500,
+                    style: {
+                        textAlign: 'center'
+                    }
+                });
+                e.target.value = null;
+                return;
+            }
+
+            handleFileSelect(file);
         }
     };
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = (e) => {
         e.preventDefault();
         if (isFormValid()) {
-            handleFileUpload();  // Call your function when the form is valid
+            setShowConfirmChangesPopup(true); // Ask about word doc changes before uploading
         }
+    };
+
+    const handleConfirmChangesNo = () => {
+        setShowConfirmChangesPopup(false);
+        handleFileUpload(); // No word doc changes, upload as normal
+    };
+
+    const handleConfirmChangesYes = () => {
+        setShowConfirmChangesPopup(false);
+        setShowWordUploadPopup(true);
+    };
+
+    const handleWordFileChange = (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            const file = e.target.files[0];
+            const wordMimeTypes = [
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ];
+            const isWord = wordMimeTypes.includes(file.type) || /\.(doc|docx)$/i.test(file.name);
+
+            if (!isWord) {
+                toast.error("Please select a Word document", {
+                    closeButton: false,
+                    autoClose: 1500,
+                    style: {
+                        textAlign: 'center'
+                    }
+                });
+                e.target.value = null;
+                return;
+            }
+
+            setWordFile(file);
+        }
+    };
+
+    const handleWordUploadCancel = () => {
+        setShowWordUploadPopup(false);
+        setWordFile(null);
+    };
+
+    const handleWordUploadSubmit = () => {
+        if (!wordFile) {
+            toast.error("Please select the updated Word document", {
+                closeButton: false,
+                autoClose: 1500,
+                style: {
+                    textAlign: 'center'
+                }
+            });
+            return;
+        }
+
+        setShowWordUploadPopup(false);
+        handleFileUpload(wordFile);
     };
 
     return (
@@ -257,6 +337,7 @@ const RiskSignedOffUploadPopup = ({ onClose, docID, refresh, closeNavigate, type
                                 {'Select Document'}
                                 <input
                                     type="file"
+                                    accept=".pdf,application/pdf"
                                     onChange={handleFileChange}
                                     style={{ display: 'none' }}
                                 />
@@ -272,10 +353,10 @@ const RiskSignedOffUploadPopup = ({ onClose, docID, refresh, closeNavigate, type
                         <form className="upload-file-page-form" onSubmit={handleSubmit}>
                             <div className="upload-file-page-form-row">
                                 <div className={`upload-file-page-form-group ${errors.discipline ? "error-upload-required-up" : ""}`}>
-                                    <label>Discipline <span className="required-field">*</span></label>
+                                    <label>Department <span className="required-field">*</span></label>
                                     <div className="upload-file-page-select-container">
                                         <select value={discipline} className="upload-file-page-select" onChange={(e) => setDiscipline(e.target.value)}>
-                                            <option value="">Select Discipline</option>
+                                            <option value="">Select Department</option>
                                             {disciplines
                                                 .sort((a, b) => a.localeCompare(b)) // Sorts alphabetically
                                                 .map((discipline, index) => (
@@ -370,6 +451,64 @@ const RiskSignedOffUploadPopup = ({ onClose, docID, refresh, closeNavigate, type
                         </div>
                     </div>
                 </div>
+
+                {showConfirmChangesPopup && (
+                    <div className="delete-draft-popup-overlay">
+                        <div className="delete-draft-popup-content">
+                            <div className="delete-draft-header">
+                                <h2 className="delete-draft-title" style={{ marginBottom: "10px" }}>Document Changes</h2>
+                                <button className="delete-draft-close" onClick={() => setShowConfirmChangesPopup(false)} title="Close Popup">×</button>
+                            </div>
+
+                            <div className="delete-draft-group">
+                                <div className="delete-draft-text" style={{ marginBottom: "0px" }}>
+                                    Have there been any changes made to the Word document?
+                                </div>
+                            </div>
+
+                            <div className="delete-draft-buttons" style={{ marginTop: "10px" }}>
+                                <button className="delete-draft-button-delete" onClick={handleConfirmChangesYes}>
+                                    Yes
+                                </button>
+                                <button className="delete-draft-button-cancel" onClick={handleConfirmChangesNo}>
+                                    No
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {showWordUploadPopup && (
+                    <div className="delete-draft-popup-overlay">
+                        <div className="delete-draft-popup-content">
+                            <div className="delete-draft-header" style={{ marginBottom: "10px" }}>
+                                <h2 className="delete-draft-title">Upload Updated Word Document</h2>
+                                <button className="delete-draft-close" onClick={handleWordUploadCancel} title="Close Popup">×</button>
+                            </div>
+
+                            <div className="upload-file-page-form-group-container">
+                                <div className="upload-file-name">{wordFile ? wordFile.name : "No Document Selected"}</div>
+                                <div className="create-user-buttons">
+                                    <label className="choose-upload-file-button" style={{ width: "35%" }}>
+                                        {'Select Document'}
+                                        <input
+                                            type="file"
+                                            accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                            onChange={handleWordFileChange}
+                                            style={{ display: 'none' }}
+                                        />
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="delete-draft-buttons">
+                                <button className="choose-upload-file-button" style={{ width: "37%" }} onClick={handleWordUploadSubmit}>
+                                    Upload
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div >
     );

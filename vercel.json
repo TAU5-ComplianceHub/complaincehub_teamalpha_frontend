@@ -1,0 +1,27 @@
+{
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/FrontendDMS/",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/FrontendDMS/static/:path*",
+      "destination": "/static/:path*"
+    },
+    {
+      "source": "/FrontendDMS/:file((?:[^/]+)\\.(?:ico|png|jpg|jpeg|gif|svg|webp|avif|json|txt|xml|pdf|woff|woff2|ttf|eot|map))",
+      "destination": "/:file"
+    },
+    {
+      "source": "/FrontendDMS/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

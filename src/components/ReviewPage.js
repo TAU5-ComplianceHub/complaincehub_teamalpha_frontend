@@ -20,7 +20,7 @@ import 'react-toastify/dist/ReactToastify.css';  // Import CSS for styling
 import LoadDraftPopup from "./CreatePage/LoadDraftPopup";
 import SaveAsPopup from "./Popups/SaveAsPopup";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFloppyDisk, faSpinner, faCheckCircle, faRotateLeft, faArrowLeft, faBell, faCircleUser, faChevronLeft, faChevronRight, faCaretLeft, faCaretRight, faRotateRight, faSave, faPen, faUpload, faBan } from '@fortawesome/free-solid-svg-icons';
+import { faFloppyDisk, faSpinner, faCheckCircle, faRotateLeft, faArrowLeft, faBell, faCircleUser, faChevronLeft, faChevronRight, faCaretLeft, faCaretRight, faRotateRight, faSave, faPen, faUpload, faBan, faTimesCircle, faCopy } from '@fortawesome/free-solid-svg-icons';
 import TopBarDD from "./Notifications/TopBarDD";
 import SupportingDocumentTable from "./RiskRelated/SupportingDocumentTable";
 import DraftPopup from "./Popups/DraftPopup";
@@ -34,6 +34,8 @@ import HazardsControlsTable from "./CreatePage/HazardsControlsTable";
 import SavingInProgress from "./DocumentCreationPages/SavingInProgress";
 import PublishingInProgress from "./DocumentCreationPages/PublishingInProgress";
 import RemoveFromApprovalPopup from "./Popups/RemoveFromApprovalPopup";
+import RejectReason from "./Popups/RejectReason";
+import RejectReasonView from "./Popups/RejectReasonView";
 
 const ReviewPage = () => {
     const navigate = useNavigate();
@@ -76,6 +78,11 @@ const ReviewPage = () => {
     const [removeApprovalState, setRemoveApprovalState] = useState(false);
     const [removingApproval, setRemovingApproval] = useState(false);
     const [canRemove, setCanRemove] = useState(false);
+    const [rejectState, setRejectState] = useState(false);
+    const [rejecting, setRejecting] = useState(false);
+    const [isRejected, setIsRejected] = useState(false);
+    const [showRejectReasonView, setShowRejectReasonView] = useState(false);
+    const [rejectionInfo, setRejectionInfo] = useState({ rejectorName: "", rejectDate: null, rejectionMessage: "" });
 
     const openApproval = () => {
         setApproval(true);
@@ -574,6 +581,13 @@ const ReviewPage = () => {
             const storedData = data.files || {};
             const readOnly = data.readOnly || false;
             const canRemove = data.canRemove || false;
+            const isRejectedFromServer = canRemove
+                ? false
+                : Boolean(storedData.isRejected || data.isRejected);
+            // Owner-facing view of the same flag: the owner doesn't get the
+            // read-only "rejected" banner (they're the one meant to fix it), but
+            // they do need to see who rejected it, when, and why.
+            const isRejectedForOwner = canRemove && Boolean(storedData.isRejected || data.isRejected);
 
             // Update your states as needed:
             setUsedAbbrCodes(storedData.usedAbbrCodes || []);
@@ -586,7 +600,8 @@ const ReviewPage = () => {
             setInApproval(Boolean(data.statusApproval));
             setInReview(Boolean(data.statusReview));
 
-            setReadOnly(readOnly);
+            setReadOnly(Boolean(data.readOnly) || isRejectedFromServer);
+            setIsRejected(isRejectedFromServer);
             setCanRemove(canRemove);
             const rawForm = storedData.formData || {};
             const normalizedForm = {
@@ -601,6 +616,17 @@ const ReviewPage = () => {
             setFormData(prev => ({ ...prev }));
             setTitleSet(true);
             setAzureFN(storedData.azureFileName || "");
+            if (isRejectedForOwner) {
+                // The rejection view takes priority over the reshare popup. The
+                // reshare decision (if any) happens after the owner clicks
+                // "Review Document" — see resolveRejectedDraft.
+                setRejectionInfo({
+                    rejectorName: storedData.rejectorUser || "N/A",
+                    rejectDate: storedData.rejectDate || null,
+                    rejectionMessage: storedData.rejectionMessage || "",
+                });
+                setShowRejectReasonView(true);
+            }
         } catch (error) {
             console.error('Error loading data:', error);
         }
@@ -1238,6 +1264,63 @@ const ReviewPage = () => {
         } catch (error) {
             console.error("Error generating document:", error);
             setLoading(false);
+        }
+    };
+
+    const handleRejectClick = () => {
+        setRejectState(true);
+    };
+
+    const closeRejectPopup = () => {
+        setRejectState(false);
+    };
+
+    const rejectDraft = async (message) => {
+        setRejecting(true);
+
+        try {
+            const response = await fetch(`${process.env.REACT_APP_URL}/api/documentApprovals/reject-published-proc`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                },
+                body: JSON.stringify({ draftID: fileID, message }),
+            });
+
+            if (!response.ok) throw new Error("Failed to reject document");
+
+            toast.success(`Successfully Rejected.`, {
+                closeButton: true,
+                autoClose: 1500, // 1.5 seconds
+                style: {
+                    textAlign: 'center'
+                }
+            });
+
+            if (autoSaveInterval.current) {
+                clearInterval(autoSaveInterval.current);
+                autoSaveInterval.current = null;
+            }
+
+            setIsRejected(true);
+            setReadOnly(true);
+            setRejectState(false);
+
+            setTimeout(() => {
+                navigate(-1);
+            }, 1500);
+        } catch (error) {
+            console.error("Error rejecting document:", error);
+            toast.error("Failed to reject document", {
+                closeButton: true,
+                autoClose: 1500,
+                style: {
+                    textAlign: 'center'
+                }
+            });
+        } finally {
+            setRejecting(false);
         }
     };
 
@@ -2000,6 +2083,54 @@ const ReviewPage = () => {
         }
     };
 
+    const formatRejectDate = (dateValue) => {
+        if (!dateValue) return "N/A";
+        const parsed = new Date(dateValue);
+        if (isNaN(parsed.getTime())) return "N/A";
+
+        const datePart = parsed.toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+        });
+        const timePart = parsed.toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+        });
+
+        return `${datePart}`;
+    };
+
+    const resolveRejectedDraft = async () => {
+        try {
+            const response = await fetch(`${process.env.REACT_APP_URL}/api/fileGenDocs/resolveRejected/${fileID}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                },
+            });
+
+            if (!response.ok) throw new Error("Failed to update draft");
+
+            setShowRejectReasonView(false);
+            setIsRejected(false);
+            setReadOnly(false);
+        } catch (error) {
+            console.error("Error resolving rejected draft:", error);
+            toast.error("Failed to update draft", {
+                closeButton: true,
+                autoClose: 1500,
+                style: {
+                    textAlign: 'center'
+                }
+            });
+        }
+    };
+
+    const handleReviewRejectedDraft = () => resolveRejectedDraft();
+
     return (
         <div className="file-create-container">
             {isSidebarVisible && (
@@ -2034,18 +2165,11 @@ const ReviewPage = () => {
                             <FontAwesomeIcon icon={faFloppyDisk} title="Save" onClick={handleSave} />
                         </div>)}
 
-                        {!readOnly && (<div className="burger-menu-icon-risk-create-page-1">
-                            <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={openSaveAs} title="Save As">
-                                {/* base floppy-disk, full size */}
-                                <FontAwesomeIcon icon={faSave} />
-                                {/* pen, shrunk & nudged down/right into corner */}
-                                <FontAwesomeIcon
-                                    icon={faPen}
-                                    transform="shrink-6 down-5 right-7"
-                                    color="gray"   /* or whatever contrast you need */
-                                />
-                            </span>
-                        </div>)}
+                        {(
+                            <div className="burger-menu-icon-risk-create-page-1">
+                                <FontAwesomeIcon icon={faCopy} onClick={openSaveAs} title="Create Copy" />
+                            </div>
+                        )}
 
                         {!readOnly && (<div className="burger-menu-icon-risk-create-page-1">
                             <FontAwesomeIcon icon={faRotateLeft} onClick={undoLastChange} title="Undo" />
@@ -2063,7 +2187,11 @@ const ReviewPage = () => {
                             <FontAwesomeIcon style={{ color: "#7EAC89" }} icon={faCheckCircle} className={`${(!loadedID) ? "disabled-share" : ""}`} onClick={handleApproveClick} title="Approve Draft" />
                         </div>)}
 
-                        {canRemove && (inApproval || inReview) && (<div className="burger-menu-icon-risk-create-page-1">
+                        {(inApproval || inReview) && !readOnly && canIn(access, "DDS", ["systemAdmin", "contributor"]) && (<div className="burger-menu-icon-risk-create-page-1">
+                            <FontAwesomeIcon style={{ color: "#CB6F6F" }} icon={faTimesCircle} className={`${(!loadedID) ? "disabled-share" : ""}`} onClick={handleRejectClick} title="Reject Document" />
+                        </div>)}
+
+                        {false && canRemove && (inApproval || inReview) && (<div className="burger-menu-icon-risk-create-page-1">
                             <FontAwesomeIcon icon={faBan} onClick={openRemoveApproval} title="Remove From Approval Process" style={{ color: "#CB6F6F" }} />
                         </div>)}
                     </div>
@@ -2074,6 +2202,12 @@ const ReviewPage = () => {
                     <TopBarDD refreshable={false} canIn={canIn} access={access} menu={"1"} create={true} />
                 </div>
 
+                {isRejected && (<div className="input-row">
+                    <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#CB6F6F", color: "white", fontWeight: "bold" }}>
+                        This document is in Read Only Mode as it has been rejected and requires document owner intervention.
+                    </div>
+                </div>)}
+
                 {(!readOnly && (inApproval || inReview)) && (<div className="input-row">
                     <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#7EAC89", color: "white", fontWeight: "bold" }}>
                         To approve this document, click on the green circle above.
@@ -2081,7 +2215,7 @@ const ReviewPage = () => {
                 </div>)}
 
                 <div className={`scrollable-box`}>
-                    {(readOnly && (inReview || inApproval)) && (<div className="input-row">
+                    {(readOnly && (inReview || inApproval) && !isRejected) && (<div className="input-row">
                         <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#FFFF89", color: "black", fontWeight: "bold" }}>
                             This document is currently in the approval process
                         </div>
@@ -2095,7 +2229,7 @@ const ReviewPage = () => {
                                     name="title"
                                     className="font-fam title-input-review-page"
                                     value={formData.title + " " + formData.documentType}
-                                    readOnly={readOnly}
+                                    readOnly
                                 />
                             </div>
                         </div>
@@ -2253,6 +2387,7 @@ const ReviewPage = () => {
             {isSaving && (
                 <SavingInProgress />
             )}
+            {rejectState && (<RejectReason isOpen={rejectState} onClose={closeRejectPopup} onSubmit={rejectDraft} loading={rejecting} />)}
             {removeApprovalState && (
                 <RemoveFromApprovalPopup
                     closeModal={closeRemoveApproval}

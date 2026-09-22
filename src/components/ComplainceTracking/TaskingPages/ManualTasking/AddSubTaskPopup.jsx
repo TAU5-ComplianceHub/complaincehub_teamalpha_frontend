@@ -613,7 +613,7 @@ const AddSubTaskPopup = ({ onClose, onTaskAdded, parentTask }) => {
                                 <div className="ibra-popup-page-column-half">
                                     <div className="cea-popup-page-component-wrapper">
                                         <div className="ibra-popup-page-form-group">
-                                            <label>Discipline</label>
+                                            <label>Department</label>
                                             <div className="ibra-popup-page-select-container">
                                                 <select
                                                     className="ibra-popup-page-select"
@@ -621,7 +621,7 @@ const AddSubTaskPopup = ({ onClose, onTaskAdded, parentTask }) => {
                                                     onChange={(e) => setDiscipline(e.target.value)}
                                                 >
                                                     <option value="">
-                                                        {"Select Discipline"}
+                                                        {"Select Department"}
                                                     </option>
                                                     {disciplineOptions.map((d) => (
                                                         <option key={d.department} value={d.department}>{d.department}</option>

@@ -5,8 +5,10 @@ import { faCaretLeft, faCaretRight, faDownload, faFolderOpen, faTrash, faSort, f
 import { jwtDecode } from 'jwt-decode';
 import TopBar from "../Notifications/TopBar";
 import DeletePopup from "../FileInfo/DeletePopup";
+import StartReviewPopup from "../Popups/StartReviewPopup";
 import { toast, ToastContainer } from "react-toastify";
 import FTSPopupMenuSignedOffFiles from "./FTSPopupMenuSignedOffFiles";
+import { getCurrentUser, canIn, isAdmin } from "../../utils/auth";
 
 const FTSSignedOffTemplates = () => {
     const [files, setFiles] = useState([]);
@@ -22,10 +24,27 @@ const FTSSignedOffTemplates = () => {
     const [selectedFileName, setSelectedFileName] = useState();
 
     const navigate = useNavigate();
-    const reviewDocument = async (fileID) => {
-        let route = `${process.env.REACT_APP_URL}/api/ftsGenerate/reviewSOTemplate/${fileID}`
+
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "FTS", ["systemAdmin"]);
+    const [fileToReview, setFileToReview] = useState(null);
+    const [reviewLoading, setReviewLoading] = useState(false);
+
+    const openReviewPopup = (id) => {
+        setFileToReview(id);
+        setHoveredFileId(null);
+    };
+
+    const closeReviewPopup = () => {
+        if (!reviewLoading) setFileToReview(null);
+    };
+
+    const startReview = async () => {
+        if (!fileToReview || reviewLoading) return;
+        let route = `${process.env.REACT_APP_URL}/api/ftsGenerate/reviewSOTemplate/${fileToReview}`
 
         try {
+            setReviewLoading(true);
             const response = await fetch(`${route}`, {
                 method: 'POST',
                 headers: {
@@ -36,6 +55,7 @@ const FTSSignedOffTemplates = () => {
                 throw new Error(response.error || 'Failed to upload file');
             }
 
+            setFileToReview(null);
             toast.success("Document Version Created in the Drafts Folder.", {
                 closeButton: false,
                 autoClose: 1500,
@@ -47,6 +67,8 @@ const FTSSignedOffTemplates = () => {
             fetchFiles();
         } catch (error) {
             setLoading(false);
+        } finally {
+            setReviewLoading(false);
         }
     }
 
@@ -126,11 +148,14 @@ const FTSSignedOffTemplates = () => {
     };
 
     useEffect(() => { const t = localStorage.getItem('token'); if (t) { setToken(t); setUserID(jwtDecode(t).userId); } }, [navigate]);
-    useEffect(() => { if (token) fetchFiles(); }, [token]);
+    useEffect(() => { if (token) fetchFiles(); }, [token, isSystemAdmin]);
 
     const fetchFiles = async () => {
         try {
-            const r = await fetch(`${process.env.REACT_APP_URL}/api/ftsGeneratedDocs/template/${userID}`);
+            const route = isSystemAdmin
+                ? `${process.env.REACT_APP_URL}/api/ftsGeneratedDocs/template/${userID}?isAdmin=true`
+                : `${process.env.REACT_APP_URL}/api/ftsGeneratedDocs/template/${userID}`;
+            const r = await fetch(route);
             if (!r.ok) throw new Error('Failed');
             const d = await r.json();
             setFiles(d.files);
@@ -218,7 +243,7 @@ const FTSSignedOffTemplates = () => {
                 <div className="popup-anchor">
                     <span>{(f.formData.title)}</span>
 
-                    {(hoveredFileId === f._id) && (<FTSPopupMenuSignedOffFiles preview={previewDocument} file={f} typeDoc={"ibra"} risk={false} isOpen={true} openDownloadModal={downloadFile} setHoveredFileId={setHoveredFileId} id={f._id} review={reviewDocument} />)}
+                    {(hoveredFileId === f._id) && (<FTSPopupMenuSignedOffFiles preview={previewDocument} file={f} typeDoc={"ibra"} risk={false} isOpen={true} openDownloadModal={downloadFile} setHoveredFileId={setHoveredFileId} id={f._id} review={openReviewPopup} />)}
                 </div>
             )
         },
@@ -571,6 +596,13 @@ const FTSSignedOffTemplates = () => {
 
             <ToastContainer />
             {isModalOpen && (<DeletePopup closeModal={closeModal} deleteFile={deleteFile} isTrashView={false} loading={loading} selectedFileName={selectedFileName} />)}
+            {fileToReview && (
+                <StartReviewPopup
+                    startReview={startReview}
+                    cancel={closeReviewPopup}
+                    loading={reviewLoading}
+                />
+            )}
         </div>
     );
 };

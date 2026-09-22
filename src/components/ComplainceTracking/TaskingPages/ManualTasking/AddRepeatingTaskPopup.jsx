@@ -598,14 +598,14 @@ const AddRepeatingTaskPopup = ({ onClose, onTaskAdded }) => {
                                 <div className="ibra-popup-page-column-half">
                                     <div className="cea-popup-page-component-wrapper">
                                         <div className="ibra-popup-page-form-group">
-                                            <label>Discipline <span className="required-field">*</span></label>
+                                            <label>Department <span className="required-field">*</span></label>
                                             <div className="ibra-popup-page-select-container">
                                                 <select
                                                     className="ibra-popup-page-select"
                                                     value={discipline}
                                                     onChange={(e) => setDiscipline(e.target.value)}
                                                 >
-                                                    <option value="">Select Discipline</option>
+                                                    <option value="">Select Department</option>
                                                     {disciplineOptions.map((d) => (
                                                         <option key={d.department} value={d.department}>{d.department}</option>
                                                     ))}

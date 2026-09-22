@@ -303,7 +303,7 @@ const DMSDashboard = () => {
                             </div>
 
                             {/* 4. Training Management */}
-                            <div className="dms-ops-card" onClick={() => navigate('/FrontendDMS/constructionHelp')}>
+                            {false && (<div className="dms-ops-card" onClick={() => navigate('/FrontendDMS/constructionHelp')}>
                                 <div className="dms-ops-card-header">
                                     <div style={{ width: "100%" }}>
                                         <p className="dms-ops-card-title">Training Management</p>
@@ -331,10 +331,10 @@ const DMSDashboard = () => {
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                            </div>)}
 
                             {/* 5. EPA Management */}
-                            <div className="dms-ops-card" onClick={() => navigate('/FrontendDMS/epamsDash')}>
+                            {false && (<div className="dms-ops-card" onClick={() => navigate('/FrontendDMS/epamsDash')}>
                                 <div className="dms-ops-card-header">
                                     <div style={{ width: "100%" }}>
                                         <p className="dms-ops-card-title">EPA Management</p>
@@ -362,7 +362,7 @@ const DMSDashboard = () => {
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                            </div>)}
 
                             {/* 6. Compliance Tracking */}
                             <div className="dms-ops-card" onClick={() => navigate('/FrontendDMS/ctsDash')}>

@@ -1,0 +1,119 @@
+/* Shared modal pattern, matching DeleteDraftPopup's design language */
+
+.confirm-word-changes-popup-overlay,
+.upload-word-doc-popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100;
+}
+
+.confirm-word-changes-popup-content,
+.upload-word-doc-popup-content {
+    background: #fff;
+    border-radius: 8px;
+    width: 380px;
+    max-width: 90%;
+    padding: 24px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.confirm-word-changes-header,
+.upload-word-doc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.confirm-word-changes-title,
+.upload-word-doc-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #002060;
+}
+
+.confirm-word-changes-close,
+.upload-word-doc-close {
+    background: none;
+    border: none;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    color: #666;
+}
+
+.confirm-word-changes-close:hover,
+.upload-word-doc-close:hover {
+    color: #000;
+}
+
+.confirm-word-changes-group,
+.upload-word-doc-group {
+    margin-bottom: 20px;
+}
+
+.confirm-word-changes-text,
+.upload-word-doc-text {
+    font-size: 14px;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.upload-word-doc-name {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 12px;
+    font-style: italic;
+}
+
+.confirm-word-changes-buttons,
+.upload-word-doc-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.confirm-word-changes-button-yes,
+.upload-word-doc-button-upload {
+    background: #002060;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 20px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.confirm-word-changes-button-yes:hover,
+.upload-word-doc-button-upload:hover {
+    background: #001845;
+}
+
+.upload-word-doc-button-upload:disabled {
+    background: #a0a8bd;
+    cursor: not-allowed;
+}
+
+.confirm-word-changes-button-no,
+.upload-word-doc-button-cancel {
+    background: #f0f0f0;
+    color: #333;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 20px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.confirm-word-changes-button-no:hover,
+.upload-word-doc-button-cancel:hover {
+    background: #e0e0e0;
+}

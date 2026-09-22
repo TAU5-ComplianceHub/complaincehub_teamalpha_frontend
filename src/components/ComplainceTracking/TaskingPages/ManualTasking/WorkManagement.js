@@ -51,6 +51,14 @@ import MigrateWorkOrder from "../WorkOrderManagementPopups/MigrateWorkOrder";
 // ActionFieldsPreviewBox imports "./ActionFieldControl" directly. Adjust
 // this path to wherever that folder actually is relative to this file.
 import WorkOrderInfoPreview from "../WorkOrderManagementPopups/WorkOrderInfoPreview";
+// Desktop equivalent of the mobile app's Populate Work Order screen - lets
+// the responsible person fill in/edit an accepted work order's action
+// fields from the browser. Lives next to WorkOrderInfoPreview since it
+// reuses the same popup shell styling and pulls in ActionFieldsPopulateBox
+// (which, like ActionFieldsPreviewBox, expects to sit next to
+// ActionFieldControl/ActionFieldsInfoBox) - adjust the path if that folder
+// moves.
+import PopulateWorkOrderPreview from "../WorkOrderManagementPopups/PopulateWorkOrderPreview";
 
 // ─── Route helpers ────────────────────────────────────────────────────────────
 // Work order tasks all live on a single route now — no more auto-auto/auto-manual sources.
@@ -367,6 +375,10 @@ const WorkManagement = () => {
     const [delegateTaskPopup, setDelegateTaskPopup] = useState({ open: false, task: null });
     const [reassignWorkOrderPopup, setReassignWorkOrderPopup] = useState({ open: false, task: null });
     const [previewTaskPopup, setPreviewTaskPopup] = useState({ open: false, task: null });
+    // "My Work Orders" (view === "viewer") only - the faEdit icon in the
+    // action column opens this so the responsible person can populate/edit
+    // an accepted work order's action fields from the desktop.
+    const [populateTaskPopup, setPopulateTaskPopup] = useState({ open: false, task: null });
     const [hoveredTaskId, setHoveredTaskId] = useState(null);
     const [dueDateVal, setDueDateVal] = useState(30);
     const [isTaskDueDatePopupOpen, setIsTaskDueDatePopupOpen] = useState(false);
@@ -575,6 +587,17 @@ const WorkManagement = () => {
         const task = previewTaskPopup.task;
         closePreviewTaskPopup();
         if (task) openCloseTaskPopup(task);
+    };
+    const openPopulateTaskPopup = (task) => setPopulateTaskPopup({ open: true, task });
+    const closePopulateTaskPopup = () => {
+        setPopulateTaskPopup({ open: false, task: null });
+        fetchTasks();
+    }
+    // Refreshes the table once a work order has actually been submitted
+    // from the popup (Save Progress alone doesn't need this - the row's
+    // status only meaningfully changes on submit).
+    const handlePopulateTaskSubmitted = () => {
+        fetchTasks();
     };
 
     const handleDeleteTask = async () => {
@@ -1731,32 +1754,12 @@ const WorkManagement = () => {
                 const isReopening = reopeningTaskIds.has(row._id);
                 const isCancelled = row.status === "Cancelled";
 
-                // In closedOut view: check if user can reopen
-                // _isAllocator is set by the /closed endpoint; if not present, fall back to view
-                const canReopen = view === "closedOut"
-                    ? (row._isAllocator === true)
-                    : view === "allocator";
-
-                // ── Closed-out view — show reopen control or read-only badge ─────────────
+                // ── Closed-out view — always a read-only "Closed Out" badge ──────────────
+                // The reopen action now lives in the Action column as a restore icon.
                 if (view === "closedOut") {
-                    if (!canReopen) {
-                        // Responsible-only user: read-only closed cell
-                        return (
-                            <td key="closeStatus" className="procCent" style={{ fontSize: "14px", backgroundColor: "#7EAC87", color: "#fff", borderLeft: "1px solid white", borderRight: "1px solid white" }}>
-                                Closed Out
-                            </td>
-                        );
-                    }
-                    // Allocator (or both): interactive reopen checkbox
                     return (
-                        <td key="closeStatus" className="procCent" style={{ fontSize: "14px", borderLeft: "1px solid white", borderRight: "1px solid white" }}>
-                            <input type="checkbox" className="checkbox-inp-abbr"
-                                checked={true}
-                                disabled={isReopening}
-                                title="Click to reopen this work order"
-                                style={{ cursor: isReopening ? "not-allowed" : "pointer", opacity: isReopening ? 0.4 : 1 }}
-                                onChange={() => { openReopenTaskPopup(row); }}
-                            />
+                        <td key="closeStatus" className="procCent" style={{ fontSize: "14px", backgroundColor: "#7EAC87", color: "#fff", borderLeft: "1px solid white", borderRight: "1px solid white" }}>
+                            Closed Out
                         </td>
                     );
                 }
@@ -1857,6 +1860,26 @@ const WorkManagement = () => {
                                     style={{ marginLeft: "5px" }} onClick={() => handleDownloadWorkOrderResults(row)}>
                                     <FontAwesomeIcon icon={faFilePdf} />
                                 </button>
+                                {/* Restore/reopen — allocator (or both) only */}
+                                {row._isAllocator === true && (() => {
+                                    const isReopening = reopeningTaskIds.has(row._id);
+                                    return (
+                                        <button
+                                            type="button"
+                                            className="rca-action-btn"
+                                            title="Restore (reopen) this work order"
+                                            style={{
+                                                marginLeft: "5px",
+                                                cursor: isReopening ? "not-allowed" : "pointer",
+                                                opacity: isReopening ? 0.4 : 1,
+                                            }}
+                                            disabled={isReopening}
+                                            onClick={() => openReopenTaskPopup(row)}
+                                        >
+                                            <FontAwesomeIcon icon={faClockRotateLeft} />
+                                        </button>
+                                    );
+                                })()}
                             </>
                         ) : (
                             <>
@@ -1869,6 +1892,21 @@ const WorkManagement = () => {
                                         onClick={() => setAcceptTaskPopup({ open: true, task: row })}
                                     >
                                         <FontAwesomeIcon icon={faCircleCheck} />
+                                    </button>
+                                )}
+                                {/* Populate/edit the work order's action fields from the
+                                    desktop - only once it's been accepted, and only while
+                                    it isn't already submitted (mirrors the mobile app's
+                                    _isReadOnly: status !== "Completed"). */}
+                                {row.acceptanceStatus === "Accepted" && row.status !== "Completed" && (
+                                    <button
+                                        type="button"
+                                        className="rca-action-btn"
+                                        title="Populate Work Order"
+                                        style={{ marginLeft: "5px" }}
+                                        onClick={() => openPopulateTaskPopup(row)}
+                                    >
+                                        <FontAwesomeIcon icon={faEdit} />
                                     </button>
                                 )}
                                 {false && (<button
@@ -2304,6 +2342,15 @@ const WorkManagement = () => {
                     taskId={previewTaskPopup.task?._id}
                     onClose={closePreviewTaskPopup}
                     onCloseOut={handlePreviewCloseOut}
+                />
+            )}
+
+            {populateTaskPopup.open && (
+                <PopulateWorkOrderPreview
+                    open={populateTaskPopup.open}
+                    taskId={populateTaskPopup.task?._id}
+                    onClose={closePopulateTaskPopup}
+                    onSubmitted={handlePopulateTaskSubmitted}
                 />
             )}
 

@@ -75,18 +75,18 @@ const TMSHomePage = () => {
                     <div className="spacer"></div>
 
                     {/* Container for right-aligned icons */}
-                    <TopBar showInfo={true} type={"TMS"} showDash={true} />
+                    <TopBar showInfo={true} type={"TMS"} showDash={false} />
                 </div>
 
                 <div className="scrollable-box-fi-home">
-                    <div className={`document-card-fi-home`} onClick={() => navigate("/FrontendDMS/visitorInductionHome")}>
+                    {true && (<div className={`document-card-fi-home`} onClick={() => navigate("/FrontendDMS/visitorInductionHome")}>
                         <>
                             <div className="icon-dept">
                                 <img src={`${process.env.PUBLIC_URL}/visitorInductionMainIcon.svg`} className={"icon-dept"} />
                             </div>
                             <h3 className="document-title-fi-home">Visitor Induction</h3>
                         </>
-                    </div>
+                    </div>)}
                     {true && (<div className={`document-card-fi-home`} onClick={() => navigate("/FrontendDMS/onlineTrainingHome")}>
                         <>
                             <div className="icon-dept">

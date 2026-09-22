@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCaretLeft, faCaretRight, faDownload, faFolderOpen, faTrash, faBan } from '@fortawesome/free-solid-svg-icons';
+import { faCaretLeft, faCaretRight, faDownload, faFolderOpen, faTrash, faBan, faFileArrowDown } from '@fortawesome/free-solid-svg-icons';
 import { faSort, faSpinner, faX, faSearch, faArrowLeft, faBell, faCircleUser, faChevronLeft, faChevronRight, faColumns, faFilter } from "@fortawesome/free-solid-svg-icons";
 import { jwtDecode } from 'jwt-decode';
 import TopBar from "../Notifications/TopBar";
@@ -9,6 +9,7 @@ import DeletePopup from "../FileInfo/DeletePopup";
 import RemoveApprovalPopup from "./RemoveApprovalPopup";
 import { ToastContainer } from "react-toastify";
 import FTSSignedOffUploadPopup from "./FTSSignedOffUploadPopup";
+import { getCurrentUser, can, canIn, isAdmin } from "../../utils/auth";
 
 const FTSTemplateDocuments = () => {
     const [files, setFiles] = useState([]);
@@ -55,6 +56,9 @@ const FTSTemplateDocuments = () => {
     }
 
     const navigate = useNavigate();
+
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "FTS", ["systemAdmin"]);
 
     // --- Unified Sort Configuration ---
     const DEFAULT_SORT = { colId: "nr", direction: "asc" };
@@ -226,10 +230,13 @@ const FTSTemplateDocuments = () => {
         if (token) {
             fetchFiles();
         }
-    }, [token]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [token, isSystemAdmin]);
 
     const fetchFiles = async () => {
-        const route = `/api/ftsDrafts/templates/reviewApprovalTemplates`;
+        const route = isSystemAdmin
+            ? `/api/ftsDrafts/templates/reviewApprovalTemplates?isAdmin=true`
+            : `/api/ftsDrafts/templates/reviewApprovalTemplates`;
         try {
             const response = await fetch(`${process.env.REACT_APP_URL}${route}`, {
                 headers: {
@@ -305,7 +312,7 @@ const FTSTemplateDocuments = () => {
         if (colId === "nr") return [String(index + 1)];
 
         // 2. Simple Strings & Dates
-        if (colId === "name") return [removeFileExtension(row.formData.title)];
+        if (colId === "name") return [(row.formData.title)];
         if (colId === "version") return [String(row.formData.version)];
         if (colId === "firstPublishedBy") return [row.creator ? String(row.creator) : "N/A"];
         if (colId === "currentReviewer") return [getCurrentReviewerOrApprover(row)];
@@ -512,9 +519,9 @@ const FTSTemplateDocuments = () => {
                             className="delete-button-fi col-but"
                             onClick={() => openRemoveApprovalModal(f._id, f.formData.title)}
                             disabled={!isPublisher}
-                            title={isPublisher ? "Remove from approval process" : "Only the publisher can remove this template from the approval process"}
+                            title={isPublisher ? "Withdraw from approval process" : "Only the publisher can remove this template from the approval process"}
                         >
-                            <FontAwesomeIcon icon={faTrash} title="Remove from approval process" />
+                            <FontAwesomeIcon icon={faFileArrowDown} title="Withdraw from approval process" />
                         </button>
                     </div>
                 );
@@ -719,7 +726,7 @@ const FTSTemplateDocuments = () => {
                 </div>
                 <div className="table-flameproof-card">
                     <div className="flameproof-table-header-label-wrapper">
-                        <label className="risk-control-label">{"In Approval Templates"}</label>
+                        <label className="risk-control-label">{"Review & Approval Templates"}</label>
 
                         <FontAwesomeIcon
                             icon={faColumns}

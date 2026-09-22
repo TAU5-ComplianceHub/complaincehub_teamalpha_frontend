@@ -239,10 +239,10 @@ const FTSSignedOffUploadPopup = ({ onClose, docID, refresh, closeNavigate, type 
                         <form className="upload-file-page-form" onSubmit={handleSubmit}>
                             <div className="upload-file-page-form-row">
                                 <div className={`upload-file-page-form-group ${errors.discipline ? "error-upload-required-up" : ""}`}>
-                                    <label>Discipline <span className="required-field">*</span></label>
+                                    <label>Department <span className="required-field">*</span></label>
                                     <div className="upload-file-page-select-container">
                                         <select value={discipline} className="upload-file-page-select" onChange={(e) => setDiscipline(e.target.value)}>
-                                            <option value="">Select Discipline</option>
+                                            <option value="">Select Department</option>
                                             {disciplines
                                                 .sort((a, b) => a.localeCompare(b)) // Sorts alphabetically
                                                 .map((discipline, index) => (

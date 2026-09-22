@@ -9,8 +9,12 @@ import TopBar from "./Notifications/TopBar";
 import DeletePopup from "./FileInfo/DeletePopup";
 import SignedOffUploadPopup from "./CreatePage/SignedOffDocuments/SignedOffUploadPopup";
 import { ToastContainer } from "react-toastify";
+import { getCurrentUser, isAdmin, canIn } from "../utils/auth";
 
 const GeneratedFileInfo = () => {
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "DDS", ["systemAdmin"]);
+
     const [files, setFiles] = useState([]);
     const [error, setError] = useState(null);
     const [token, setToken] = useState('');
@@ -82,15 +86,20 @@ const GeneratedFileInfo = () => {
     const getStatus = (s) => (s?.toLowerCase() === 'published' ? 'Pending Sign Off' : s);
 
     useEffect(() => { const t = localStorage.getItem('token'); if (t) { setToken(t); setUserID(jwtDecode(t).userId); } }, [navigate]);
-    useEffect(() => { if (token) fetchFiles(); }, [token]);
-    const fetchFiles = async () => { try { const r = await fetch(`${process.env.REACT_APP_URL}/api/fileGenDocs/${userID}`); if (!r.ok) throw new Error('Failed'); const d = await r.json(); setFiles(d.files); } catch (e) { setError(e.message); } };
+    useEffect(() => { if (token) fetchFiles(); }, [token, isSystemAdmin]);
+    const fetchFiles = async () => {
+        const route = isSystemAdmin
+            ? `${process.env.REACT_APP_URL}/api/fileGenDocs/${userID}?isAdmin=true`
+            : `${process.env.REACT_APP_URL}/api/fileGenDocs/${userID}`;
+        try { const r = await fetch(route); if (!r.ok) throw new Error('Failed'); const d = await r.json(); setFiles(d.files); } catch (e) { setError(e.message); }
+    };
     const downloadFile = async (fileId, fileName) => { try { setLoading(true); const r = await fetch(`${process.env.REACT_APP_URL}/api/file//generated/download/${fileId}`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } }); if (!r.ok) throw new Error('Failed'); const blob = await r.blob(); const url = window.URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.setAttribute('download', fileName || 'doc.pdf'); document.body.appendChild(link); link.click(); link.parentNode.removeChild(link); } catch (e) { alert('Error'); } finally { setLoading(false); } };
     const removeFileExtension = (n) => n.replace(/\.[^/.]+$/, "");
 
     // Excel Logic
     const getFilterValuesForCell = (row, colId, index) => {
         if (colId === "nr") return [String(index + 1)];
-        if (colId === "name") return [removeFileExtension(row.formData.title)];
+        if (colId === "name") return [(row.formData.title)];
         if (colId === "version") return [String(row.formData.version)];
         if (colId === "status") return [getStatus(row.documentStatus)];
         if (colId === "firstPublishedBy") return [row.publisher?.username || "N/A"];
@@ -133,7 +142,7 @@ const GeneratedFileInfo = () => {
 
     const allColumns = [
         { id: "nr", title: "Nr", thClass: "gen-th ibraGenNr", tdClass: "cent-values-gen gen-point", td: (f, i) => i + 1 },
-        { id: "name", title: "Document Name", thClass: "gen-th ibraGenFN", tdClass: "gen-point", onCellClick: (f) => setHoveredFileId(hoveredFileId === f._id ? null : f._id), td: (f) => (<div className="popup-anchor"><span>{removeFileExtension(f.formData.title)}</span>{(hoveredFileId === f._id) && (<PopupMenuPubFiles file={f} typeDoc={"procedure"} risk={false} isOpen={true} openDownloadModal={downloadFile} setHoveredFileId={setHoveredFileId} id={f._id} openProcedurePopup={openPDFUpload} type={"procedure"} />)}</div>) },
+        { id: "name", title: "Document Name", thClass: "gen-th ibraGenFN", tdClass: "gen-point", onCellClick: (f) => setHoveredFileId(hoveredFileId === f._id ? null : f._id), td: (f) => (<div className="popup-anchor"><span>{(f.formData.title)}</span>{(hoveredFileId === f._id) && (<PopupMenuPubFiles file={f} typeDoc={"procedure"} risk={false} isOpen={true} openDownloadModal={downloadFile} setHoveredFileId={setHoveredFileId} id={f._id} openProcedurePopup={openPDFUpload} type={"procedure"} />)}</div>) },
         { id: "version", title: "Version", thClass: "gen-th ibraGenVer", tdClass: "cent-values-gen gen-point", td: (f) => f.formData.version },
         { id: "status", title: "Document Status", thClass: "gen-th ibraGenStatus", tdClass: "cent-values-gen gen-point", td: (f) => getStatus(f.documentStatus) },
         { id: "firstPublishedBy", title: "First Published By", thClass: "gen-th ibraGenPB", tdClass: "cent-values-gen gen-point", td: (f) => f.publisher.username },
@@ -266,7 +275,7 @@ const GeneratedFileInfo = () => {
 
                     <div className="sidebar-logo-dm-fi">
                         <img src={`${process.env.PUBLIC_URL}/proceduresDMSInverted.svg`} alt="Control Attributes" className="icon-risk-rm" />
-                        <p className="logo-text-dm-fi">{"Ready for Approval Procedures"}</p>
+                        <p className="logo-text-dm-fi">{"Pending Sign Off Procedures"}</p>
                     </div>
                 </div>
             )}

@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload, faTrash, faSearch, faX, faFilter, faArrowLeft, faCaretRight, faCaretLeft } from '@fortawesome/free-solid-svg-icons';
 import TopBar from "../Notifications/TopBar";
 import { toast, ToastContainer } from "react-toastify";
+import { getCurrentUser, canIn, isAdmin } from "../../utils/auth";
 
 // Same shell as ApprovalsRiskPage (sidebar, search, type-based routing via
 // RISK_TYPE_CONFIG, excel filtering) but the table is built off the same
@@ -22,21 +23,21 @@ const RISK_TYPE_CONFIG = {
     ibra: {
         icon: `${process.env.PUBLIC_URL}/ibra2.svg`,
         label: "Under Revision",
-        loadRoute: `${process.env.REACT_APP_URL}/api/fileGenDocs/ibra/underRevisionDrafts`,
+        loadRoute: (userID) => `${process.env.REACT_APP_URL}/api/fileGenDocs/ibra/underRevisionDrafts/${userID}`,
         downloadRoute: (fileId) => `${process.env.REACT_APP_URL}/api/file/generatedIBRA/download/${fileId}`,
         rowClickRoute: (draftId) => `/FrontendDMS/reviewIBRA/${draftId}/IBRA`,
     },
     jra: {
         icon: `${process.env.PUBLIC_URL}/jra2.svg`,
         label: "Under Revision",
-        loadRoute: `${process.env.REACT_APP_URL}/api/fileGenDocs/jra/underRevisionDrafts`,
+        loadRoute: (userID) => `${process.env.REACT_APP_URL}/api/fileGenDocs/jra/underRevisionDrafts/${userID}`,
         downloadRoute: (fileId) => `${process.env.REACT_APP_URL}/api/file/generatedJRA/download/${fileId}`,
         rowClickRoute: (draftId) => `/FrontendDMS/reviewJRA/${draftId}/JRA`,
     },
     blra: {
         icon: `${process.env.PUBLIC_URL}/blra2.svg`,
         label: "Under Revision",
-        loadRoute: `${process.env.REACT_APP_URL}/api/fileGenDocs/blra/underRevisionDrafts`,
+        loadRoute: (userID) => `${process.env.REACT_APP_URL}/api/fileGenDocs/blra/underRevisionDrafts/${userID}`,
         downloadRoute: (fileId) => `${process.env.REACT_APP_URL}/api/file/generatedBLRA/download/${fileId}`,
         rowClickRoute: (draftId) => `/FrontendDMS/reviewBLRA/${draftId}/BLRA`,
     },
@@ -51,6 +52,9 @@ const RiskRevisionPage = () => {
     const [userID, setUserID] = useState('');
     const navigate = useNavigate();
     const { type } = useParams();
+
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "RMS", ["systemAdmin"]);
 
     // --- Unified Sort (same shape as GeneratedFileInfo / RiskDocumentsIBRA) ---
     const DEFAULT_SORT = { colId: "nr", direction: "asc" };
@@ -123,7 +127,7 @@ const RiskRevisionPage = () => {
     // come from this single source of truth.
     const allColumns = [
         { id: "nr", title: "Nr", thClass: "gen-th ibraGenNr", tdClass: "cent-values-gen gen-point", td: (f, i) => i + 1 },
-        { id: "name", title: "Document Name", thClass: "gen-th ibraGenFN", tdClass: "gen-point", td: (f) => removeFileExtension(f.formData?.title) },
+        { id: "name", title: "Document Name", thClass: "gen-th ibraGenFN", tdClass: "gen-point", td: (f) => (f.formData?.title) },
         { id: "version", title: "Version", thClass: "gen-th ibraGenVer", tdClass: "cent-values-gen gen-point", td: (f) => f.formData?.version },
         { id: "status", title: "Document Status", thClass: "gen-th ibraGenStatus", tdClass: "cent-values-gen gen-point", td: (f) => f.documentStatus || "N/A" },
         { id: "firstPublishedBy", title: "First Published By", thClass: "gen-th ibraGenPB", tdClass: "cent-values-gen gen-point", td: (f) => f.publisher?.username || "N/A" },
@@ -156,7 +160,7 @@ const RiskRevisionPage = () => {
     // and the excel-style filter popup, keyed off the same column ids.
     const getFilterValuesForCell = (row, colId, index) => {
         if (colId === "nr") return [String(index + 1)];
-        if (colId === "name") return [removeFileExtension(row.formData?.title)];
+        if (colId === "name") return [(row.formData?.title)];
         if (colId === "version") return [String(row.formData?.version)];
         if (colId === "status") return [row.documentStatus || "N/A"];
         if (colId === "firstPublishedBy") return [row.publisher?.username || "N/A"];
@@ -216,7 +220,10 @@ const RiskRevisionPage = () => {
         setIsLoading(true);
         setShowNoDrafts(false);
         const token = localStorage.getItem("token");
-        const route = pageConfig.loadRoute;
+        const baseRoute = pageConfig.loadRoute(userID);
+        const route = isSystemAdmin
+            ? `${baseRoute}?isAdmin=true`
+            : baseRoute;
         try {
             const response = await fetch(route, {
                 method: "GET",
@@ -233,9 +240,10 @@ const RiskRevisionPage = () => {
     };
 
     useEffect(() => {
+        if (!userID) return;
         fetchUnderRevisionDocuments();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pageConfig]);
+    }, [pageConfig, isSystemAdmin, userID]);
 
     useEffect(() => {
         if (!isLoading && drafts.length === 0) {

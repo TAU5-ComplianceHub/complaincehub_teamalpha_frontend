@@ -14,7 +14,7 @@ const ALL_COLUMNS = [
     { id: "nr", title: "Nr" },
     { id: "version", title: "Version" },
     { id: "area", title: "Area" },
-    { id: "discipline", title: "Discipline" },
+    { id: "discipline", title: "Department" },
     { id: "taskType", title: "Type" },
     { id: "taskTitle", title: "Title" },
     { id: "taskDescription", title: "Description" },

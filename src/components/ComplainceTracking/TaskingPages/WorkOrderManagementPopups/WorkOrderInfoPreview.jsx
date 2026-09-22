@@ -128,6 +128,14 @@ const WorkOrderInfoPreview = ({ open, taskId, onClose, onCloseOut }) => {
                     )}
 
                     {!loading && !error && task && (
+                        <div className="input-row">
+                            <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#7EAC89", color: "white", fontWeight: "bold" }}>
+                                {`This work order was completed on the ${task.pdfEvidence ? "desktop application." : "mobile application."}`}
+                            </div>
+                        </div>
+                    )}
+
+                    {!loading && !error && task && (
                         <ActionFieldsPreviewBox
                             taskId={task._id}
                             actionFields={task.actionFields || []}
@@ -138,6 +146,7 @@ const WorkOrderInfoPreview = ({ open, taskId, onClose, onCloseOut }) => {
                             workOrderTitle={task.taskTitle || ""}
                             priority={task.priority || ""}
                             workOrderAttachments={task.attachments || []}
+                            pdfEvidence={task.pdfEvidence || null}
                             responsibleSignature={task.responsibleSignature || null}
                             onTaskAdded={refreshTask}
                         />

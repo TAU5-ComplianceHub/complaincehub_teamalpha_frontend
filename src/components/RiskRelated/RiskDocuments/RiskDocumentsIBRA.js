@@ -12,8 +12,12 @@ import TopBar from "../../Notifications/TopBar";
 import DeletePopup from "../../FileInfo/DeletePopup";
 import { ToastContainer } from "react-toastify";
 import RiskSignedOffUploadPopup from "../SignedOffDocuments/RiskSignedOffUploadPopup";
+import { getCurrentUser, isAdmin, canIn } from "../../../utils/auth";
 
 const RiskDocumentsIBRA = () => {
+    const access = getCurrentUser();
+    const isSystemAdmin = isAdmin(access) || canIn(access, "RMS", ["systemAdmin"]);
+
     const [files, setFiles] = useState([]); // State to hold the file data
     const [error, setError] = useState(null);
     const [token, setToken] = useState('');
@@ -199,10 +203,12 @@ const RiskDocumentsIBRA = () => {
         if (token) {
             fetchFiles();
         }
-    }, [token]);
+    }, [token, isSystemAdmin]);
 
     const fetchFiles = async () => {
-        const route = `/api/fileGenDocs/ibra/${userID}`;
+        const route = isSystemAdmin
+            ? `/api/fileGenDocs/ibra/${userID}?isAdmin=true`
+            : `/api/fileGenDocs/ibra/${userID}`;
         try {
             const response = await fetch(`${process.env.REACT_APP_URL}${route}`, {
                 headers: {
@@ -260,7 +266,7 @@ const RiskDocumentsIBRA = () => {
         if (colId === "nr") return [String(index + 1)];
 
         // 2. Simple Strings & Dates
-        if (colId === "name") return [removeFileExtension(row.formData.title)];
+        if (colId === "name") return [(row.formData.title)];
         if (colId === "version") return [String(row.formData.version)];
         if (colId === "firstPublishedBy") return [row.publisher?.username || "N/A"];
         if (colId === "firstPublishedDate") return [formatDate(row.datePublished)];

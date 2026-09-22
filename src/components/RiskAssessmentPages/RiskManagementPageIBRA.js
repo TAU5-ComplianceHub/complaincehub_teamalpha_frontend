@@ -10,7 +10,7 @@ import ReferenceTable from "../CreatePage/ReferenceTable";
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faShareNodes, faUpload, faRotateRight, faChevronLeft, faChevronRight, faInfoCircle, faMagicWandSparkles, faSave, faPen, faArrowLeft, faArrowUp, faCaretLeft, faCaretRight, faInfo, faCalendarDays, faDownload, faCheckCircle, faBan } from '@fortawesome/free-solid-svg-icons';
+import { faFloppyDisk, faSpinner, faRotateLeft, faFolderOpen, faShareNodes, faUpload, faRotateRight, faChevronLeft, faChevronRight, faInfoCircle, faMagicWandSparkles, faSave, faPen, faArrowLeft, faArrowUp, faCaretLeft, faCaretRight, faInfo, faCalendarDays, faDownload, faCheckCircle, faBan, faCopy, faTimesCircle } from '@fortawesome/free-solid-svg-icons';
 import { faFolderOpen as faFolderOpenSolid } from "@fortawesome/free-regular-svg-icons"
 import TopBarDD from "../Notifications/TopBarDD";
 import AttendanceTable from "../RiskRelated/AttendanceTable";
@@ -25,6 +25,7 @@ import RiskScope from "../RiskRelated/RiskInfo/RiskScope";
 import ExecutiveSummary from "../RiskRelated/ExecutiveSummary";
 import PicturesTable from "../CreatePage/PicturesTable";
 import SaveAsPopup from "../Popups/SaveAsPopup";
+import RenameDraftPopup from "../Popups/RenameDraftPopup";
 import SavePopup from "../Popups/SavePopup";
 import GenerateDraftPopup from "../Popups/GenerateDraftPopup";
 import DraftPopup from "../Popups/DraftPopup";
@@ -47,12 +48,16 @@ import RemoveFromApprovalPopup from "../Popups/RemoveFromApprovalPopup";
 import SavingInProgress from "../DocumentCreationPages/SavingInProgress";
 import PublishingInProgress from "../DocumentCreationPages/PublishingInProgress";
 import { useTauriCloseGuard } from "../../utils/useTauriCloseGuard";
+import ReshareDraftPopup from "../Popups/ReshareDraftPopup";
+import RejectReason from "../Popups/RejectReason";
+import RejectReasonView from "../Popups/RejectReasonView";
 
-const RiskManagementPageIBRA = () => {
+const RiskManagementPageIBRA = ({ versionPreview = false, signedOffPreview = false }) => {
     const navigate = useNavigate();
     const [owner, setOwner] = useState(false);
     const riskType = useParams().type;
     const riskId = useParams().id;
+    const versionNumber = useParams().version;
     const [share, setShare] = useState(false);
     const [usedAbbrCodes, setUsedAbbrCodes] = useState([]);
     const [companies, setCompanies] = useState([]);
@@ -78,13 +83,15 @@ const RiskManagementPageIBRA = () => {
     const [loadingScopeI, setLoadingScopeI] = useState(false);
     const [loadingScopeE, setLoadingScopeE] = useState(false);
     const [isSaveAsModalOpen, setIsSaveAsModalOpen] = useState(false);
+    const [isRenamePopupOpen, setIsRenamePopupOpen] = useState(false);
     const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
     const [controls, setControls] = useState([]);
     const [generatePopup, setGeneratePopup] = useState(false);
     const [unusedPopup, setUnusedPopup] = useState(false);
     const [draftNote, setDraftNote] = useState(null);
     const [showWorkflow, setShowWorkflow] = useState(null);
-    const [readOnly, setReadOnly] = useState(false);
+    const previewOnly = versionPreview || signedOffPreview;
+    const [readOnly, setReadOnly] = useState(previewOnly);
     const [lockUser, setLockUser] = useState(null);
     const scrollableRef = useRef(null);
     const [allSystemControls, setAllSystemControls] = useState([]);
@@ -115,6 +122,14 @@ const RiskManagementPageIBRA = () => {
     const [removeApprovalState, setRemoveApprovalState] = useState(false);
     const [removingApproval, setRemovingApproval] = useState(false);
     const [canRemove, setCanRemove] = useState(false);
+    const [isSavingVersion, setIsSavingVersion] = useState(false);
+    const [versionInfo, setVersionInfo] = useState(null);
+    const [showReshareDraft, setShowReshareDraft] = useState(false);
+    const [rejectState, setRejectState] = useState(false);
+    const [rejecting, setRejecting] = useState(false);
+    const [isRejected, setIsRejected] = useState(false);
+    const [showRejectReasonView, setShowRejectReasonView] = useState(false);
+    const [rejectionInfo, setRejectionInfo] = useState({ rejectorName: "", rejectDate: null, rejectionMessage: "" });
 
     const SHARE_ROLES = ["collaborator", "viewer", "publisher"];
     const ALL_ALLOWED_ROLES = ["owner", ...SHARE_ROLES];
@@ -253,6 +268,54 @@ const RiskManagementPageIBRA = () => {
         setIsSaveAsModalOpen(false);
     };
 
+    const openRenamePopup = () => setIsRenamePopupOpen(true);
+    const closeRenamePopup = () => setIsRenamePopupOpen(false);
+
+    // Renames the currently loaded draft in place (title only) via the
+    // dedicated rename endpoint, rather than re-saving the whole draft.
+    const handleRenameDraft = async (newTitle) => {
+        const activeId = loadedIDRef.current || loadedID;
+        if (!activeId) return;
+
+        try {
+            const response = await fetch(`${process.env.REACT_APP_URL}/api/riskDraft/ibra/rename/${activeId}`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+                body: JSON.stringify({ title: newTitle }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || "Failed to rename draft");
+            }
+
+            const newFormData = { ...formDataRef.current, title: newTitle };
+            setFormData(newFormData);
+            formDataRef.current = newFormData;
+
+            toast.dismiss();
+            toast.clearWaitingQueue();
+            toast.success("Draft renamed successfully.", {
+                closeButton: false,
+                autoClose: 1500,
+                style: { textAlign: 'center' }
+            });
+        } catch (err) {
+            console.error("Failed to rename draft:", err);
+            toast.dismiss();
+            toast.clearWaitingQueue();
+            toast.error(err.message || "Failed to rename draft", {
+                closeButton: true,
+                autoClose: 1500,
+                style: { textAlign: 'center' }
+            });
+            throw err;
+        }
+    };
+
     const openSaveMenu = () => {
         setIsSaveMenuOpen(true);
     };
@@ -332,6 +395,98 @@ const RiskManagementPageIBRA = () => {
             }
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleSaveVersion = async () => {
+        if (versionPreview || readOnly) return;
+
+        if (userIDsRef.current.length <= 1) {
+            toast.error("Only drafts shared with more than one person can have versions saved.", {
+                closeButton: true,
+                autoClose: 2200,
+                style: { textAlign: "center" }
+            });
+            return;
+        }
+
+        if (formDataRef.current.title.trim() === "") {
+            toast.dismiss();
+            toast.clearWaitingQueue();
+            toast.error("Please fill in at least the title field before saving a version.", {
+                closeButton: true,
+                autoClose: 1500,
+                style: { textAlign: "center" }
+            });
+            return;
+        }
+
+        setIsSavingVersion(true);
+
+        try {
+            let activeDraftId = loadedIDRef.current;
+
+            // A version must represent exactly what is currently on screen.
+            // Persist the working copy first, but do not create history during a normal save.
+            if (!activeDraftId) {
+                const saveResult = await saveData();
+
+                if (saveResult?.duplicate) {
+                    setIsDuplicateName(true);
+                    toast.warn("A draft with this name already exists. Please enter a new draft name.", {
+                        closeButton: true,
+                        autoClose: 2000,
+                        style: { textAlign: "center" }
+                    });
+                    return;
+                }
+
+                if (!saveResult?.ok || !saveResult?.id) {
+                    throw new Error("The draft could not be saved before creating the version.");
+                }
+
+                activeDraftId = saveResult.id;
+            } else {
+                const updateResult = await updateData(userIDsRef.current);
+                if (!updateResult?.ok) {
+                    throw new Error("The latest draft changes could not be saved before creating the version.");
+                }
+            }
+
+            const response = await fetch(
+                `${process.env.REACT_APP_URL}/api/riskDraft/ibra/versions/${activeDraftId}`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${localStorage.getItem("token")}`
+                    }
+                }
+            );
+
+            const result = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(result?.error || "Failed to save version");
+            }
+
+            toast.dismiss();
+            toast.clearWaitingQueue();
+            toast.success(`${result.label} saved successfully`, {
+                closeButton: true,
+                autoClose: 1800,
+                style: { textAlign: "center" }
+            });
+        } catch (error) {
+            console.error("Error saving version:", error);
+            toast.dismiss();
+            toast.clearWaitingQueue();
+            toast.error(error.message || "Failed to save version", {
+                closeButton: true,
+                autoClose: 2200,
+                style: { textAlign: "center" }
+            });
+        } finally {
+            setIsSavingVersion(false);
         }
     };
 
@@ -995,8 +1150,14 @@ const RiskManagementPageIBRA = () => {
         try {
             const token = localStorage.getItem("token");
 
+            const loadUrl = signedOffPreview
+                ? `${process.env.REACT_APP_URL}/api/fileGenDocs/signedOffIBRA/getFile/${loadID}`
+                : versionPreview && versionNumber
+                    ? `${process.env.REACT_APP_URL}/api/riskDraft/ibra/versions/${loadID}/${versionNumber}`
+                    : `${process.env.REACT_APP_URL}/api/riskDraft/ibra/getDraft/${loadID}`;
+
             const response = await fetch(
-                `${process.env.REACT_APP_URL}/api/riskDraft/ibra/getDraft/${loadID}`,
+                loadUrl,
                 {
                     method: "GET",
                     headers: {
@@ -1012,12 +1173,22 @@ const RiskManagementPageIBRA = () => {
 
             const data = await response.json();
 
-            const storedData = data.draft || {};
+            const storedData = signedOffPreview
+                ? data.files || {}
+                : data.draft || {};
             const readOnly = data.readOnly || false;
             const isOwner = data.isOwner || false;
             const isViewer = data.isViewer || false;
             const isPublisher = data.isPublisher || false;
             const canRemove = data.canRemove || false;
+            const isWithdrawn = data.isWithdrawn || false;
+            const isRejectedFromServer = isOwner
+                ? false
+                : Boolean(storedData.isRejected || data.isRejected);
+            // Owner-facing view of the same flag: the owner doesn't get the
+            // read-only "rejected" banner (they're the one meant to fix it), but
+            // they do need to see who rejected it, when, and why.
+            const isRejectedForOwner = isOwner && Boolean(storedData.isRejected || data.isRejected);
 
             const ownerId =
                 storedData.creator ||
@@ -1051,12 +1222,33 @@ const RiskManagementPageIBRA = () => {
             // This is what's on the server right now, so nothing is "dirty" yet.
             isDirtyRef.current = false;
             setCanRemove(canRemove);
-            setReadOnly(readOnly);
+            setReadOnly(previewOnly || Boolean(data.readOnly) || isRejectedFromServer);
+            setIsRejected(isRejectedFromServer);
+            setVersionInfo(versionPreview ? (data.version || null) : null);
             setOwner(isOwner)
             setIsViewer(isViewer);
             setIsPublisher(isPublisher);
             setInApproval(Boolean(data.statusApproval));
             setInReview(Boolean(data.statusReview));
+            if (isRejectedForOwner) {
+                // The rejection view takes priority over the reshare popup. The
+                // reshare decision (if any) happens after the owner clicks
+                // "Review Document" — see resolveRejectedDraft.
+                setRejectionInfo({
+                    rejectorName: storedData.rejectorUser || "N/A",
+                    rejectDate: storedData.rejectDate || null,
+                    rejectionMessage: storedData.rejectionMessage || "",
+                });
+                setShowRejectReasonView(true);
+                setShowReshareDraft(false);
+            } else if (isWithdrawn && normalizedSharedUsers.length <= 1) {
+                // Only the owner is on this draft, so there's no one to reshare with —
+                // silently take the "do not reshare" path instead of showing the popup.
+                setShowReshareDraft(false);
+                resolveWithdrawnDraft(false, { silent: true });
+            } else {
+                setShowReshareDraft(isWithdrawn);
+            }
 
             requestAnimationFrame(() => {
                 scrollableRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -1610,6 +1802,7 @@ const RiskManagementPageIBRA = () => {
     }, [readOnly]);
 
     useEffect(() => {
+        if (versionPreview) return;
         if (offlineDraft) return;
         if (readOnlyRef.current) return;
 
@@ -1629,9 +1822,10 @@ const RiskManagementPageIBRA = () => {
                 console.log("🧹 Auto-save interval cleared");
             }
         };
-    }, [formData.title]);
+    }, [formData.title, versionPreview]);
 
     const autoSaveDraft = () => {
+        if (versionPreview) return;
         if (readOnlyRef.current) return;
         if (readOnly) return;
         if (formData.title.trim() === "") return;
@@ -2458,6 +2652,63 @@ const RiskManagementPageIBRA = () => {
         }
     };
 
+    const handleRejectClick = () => {
+        setRejectState(true);
+    };
+
+    const closeRejectPopup = () => {
+        setRejectState(false);
+    };
+
+    const rejectDraft = async (message) => {
+        setRejecting(true);
+
+        try {
+            const response = await fetch(`${process.env.REACT_APP_URL}/api/riskApprovals/reject-draft-ibra`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                },
+                body: JSON.stringify({ draftID: loadedIDRef.current, message }),
+            });
+
+            if (!response.ok) throw new Error("Failed to reject document");
+
+            toast.success(`Successfully Rejected.`, {
+                closeButton: true,
+                autoClose: 1500, // 1.5 seconds
+                style: {
+                    textAlign: 'center'
+                }
+            });
+
+            if (autoSaveInterval.current) {
+                clearInterval(autoSaveInterval.current);
+                autoSaveInterval.current = null;
+            }
+
+            setIsRejected(true);
+            setReadOnly(true);
+            setRejectState(false);
+
+            setTimeout(() => {
+                navigate(-1);
+            }, 1500);
+        } catch (error) {
+            console.error("Error rejecting document:", error);
+            toast.error("Failed to reject document", {
+                closeButton: true,
+                autoClose: 1500,
+                style: {
+                    textAlign: 'center'
+                }
+            });
+        } finally {
+            setRejecting(false);
+        }
+    };
+
     const removeFromApprovalProcess = async () => {
         const dataToStore = {
             draftID: loadedIDRef.current
@@ -2825,6 +3076,110 @@ const RiskManagementPageIBRA = () => {
         }
     }, [allSystemControls, formData.relevantControls, formData.cea]);
 
+    const resolveWithdrawnDraft = async (reshare, options = {}) => {
+        const { silent = false } = options;
+        try {
+            const response = await fetch(`${process.env.REACT_APP_URL}/api/riskDraft/ibra/resolveWithdrawn/${loadedIDRef.current}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                },
+                body: JSON.stringify({ reshare }),
+            });
+
+            if (!response.ok) throw new Error("Failed to update draft");
+
+            if (!silent) {
+                toast.success(
+                    reshare
+                        ? `Draft reshared with previous collaborators.`
+                        : `Draft has not been reshared with previous collaborators.`,
+                    {
+                        closeButton: true,
+                        autoClose: 1500,
+                        style: {
+                            textAlign: 'center'
+                        }
+                    }
+                );
+            }
+
+            // Refresh so userIDs/share role/etc. reflect the server's decision.
+            loadData(riskId);
+        } catch (error) {
+            console.error("Error resolving withdrawn draft:", error);
+            if (!silent) {
+                toast.error("Failed to update draft", {
+                    closeButton: true,
+                    autoClose: 1500,
+                    style: {
+                        textAlign: 'center'
+                    }
+                });
+            }
+        } finally {
+            setShowReshareDraft(false);
+        }
+    };
+
+    const handleReshareDraft = () => resolveWithdrawnDraft(true);
+    const handleDoNotReshareDraft = () => resolveWithdrawnDraft(false);
+
+    const formatRejectDate = (dateValue) => {
+        if (!dateValue) return "N/A";
+        const parsed = new Date(dateValue);
+        if (isNaN(parsed.getTime())) return "N/A";
+
+        const datePart = parsed.toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+        });
+        const timePart = parsed.toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+        });
+
+        return `${datePart}`;
+    };
+
+    const resolveRejectedDraft = async () => {
+        try {
+            const response = await fetch(`${process.env.REACT_APP_URL}/api/riskDraft/ibra/resolveRejected/${loadedIDRef.current}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                },
+            });
+
+            if (!response.ok) throw new Error("Failed to update draft");
+
+            setShowRejectReasonView(false);
+            setIsRejected(false);
+            setReadOnly(false);
+
+            // Regardless of whether this draft was ever withdrawn, the owner now
+            // needs to decide whether to keep working with the previous
+            // collaborators — unless there's no one to reshare with in the first
+            // place (same guard used for withdrawn drafts).
+            setShowReshareDraft(userIDsRef.current.length > 1);
+        } catch (error) {
+            console.error("Error resolving rejected draft:", error);
+            toast.error("Failed to update draft", {
+                closeButton: true,
+                autoClose: 1500,
+                style: {
+                    textAlign: 'center'
+                }
+            });
+        }
+    };
+
+    const handleReviewRejectedDraft = () => resolveRejectedDraft();
+
     useEffect(() => {
         if (riskId === "new") {
             return;
@@ -2832,7 +3187,7 @@ const RiskManagementPageIBRA = () => {
         else {
             loadData(riskId);
         }
-    }, [riskId])
+    }, [riskId, versionPreview, versionNumber])
 
     const hasUnusedControls = () => {
         const relevant = formData.relevantControls || [];
@@ -2934,6 +3289,8 @@ const RiskManagementPageIBRA = () => {
 
     // Compare CEA rows against system controls and Trigger Popup
     useEffect(() => {
+        if (readOnly) return;
+        if (showReshareDraft) return;
         const draftId = loadedIDRef.current;
 
         console.log("Running CEA vs System Control check...", {
@@ -3916,6 +4273,7 @@ const RiskManagementPageIBRA = () => {
     };
 
     const releaseLock = async () => {
+        if (versionPreview) return true;
         if (!loadedIDRef.current) return true;
 
         try {
@@ -3947,7 +4305,7 @@ const RiskManagementPageIBRA = () => {
         setIsSaveConfirmOpen(true);
     };
 
-    const requiresSavePrompt = () => !readOnly && !!loadedIDRef.current && isDirtyRef.current;
+    const requiresSavePrompt = () => !versionPreview && !readOnly && !!loadedIDRef.current && isDirtyRef.current;
 
     // Skips the save-confirmation popup entirely: releases the lock (so the
     // document isn't left checked out) and runs the pending navigation
@@ -4028,7 +4386,7 @@ const RiskManagementPageIBRA = () => {
         {
             // Even when there's nothing to save, a loaded draft still holds a
             // server-side lock that must be released before the window closes.
-            shouldCleanup: () => !readOnly && !!loadedIDRef.current,
+            shouldCleanup: () => !versionPreview && !readOnly && !!loadedIDRef.current,
             onSilentClose: (closeWindow) => { leaveWithoutPrompt(closeWindow); },
         }
     );
@@ -4107,6 +4465,25 @@ const RiskManagementPageIBRA = () => {
                             <FontAwesomeIcon icon={faArrowLeft} onClick={handleBack} title="Back" />
                         </div>
 
+                        {!versionPreview && !readOnly && userIDs.length > 1 && (
+                            <div className="burger-menu-icon-risk-create-page-1">
+                                {isSavingVersion ? (
+                                    <FontAwesomeIcon icon={faSpinner} spin title="Saving Version" />
+                                ) : (
+                                    <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={handleSaveVersion} title="Save As New Version">
+                                        {/* base floppy-disk, full size */}
+                                        <FontAwesomeIcon icon={faSave} />
+                                        {/* pen, shrunk & nudged down/right into corner */}
+                                        <FontAwesomeIcon
+                                            icon={faPen}
+                                            transform="shrink-6 down-5 right-7"
+                                            color="gray"   /* or whatever contrast you need */
+                                        />
+                                    </span>
+                                )}
+                            </div>
+                        )}
+
                         {!readOnly && (
                             <div className="burger-menu-icon-risk-create-page-1">
                                 <FontAwesomeIcon icon={faFloppyDisk} title="Save" onClick={handleSave} />
@@ -4115,16 +4492,7 @@ const RiskManagementPageIBRA = () => {
 
                         {(
                             <div className="burger-menu-icon-risk-create-page-1">
-                                <span className="fa-layers fa-fw" style={{ fontSize: "24px" }} onClick={openSaveAs} title="Save As">
-                                    {/* base floppy-disk, full size */}
-                                    <FontAwesomeIcon icon={faSave} />
-                                    {/* pen, shrunk & nudged down/right into corner */}
-                                    <FontAwesomeIcon
-                                        icon={faPen}
-                                        transform="shrink-6 down-5 right-7"
-                                        color="gray"   /* or whatever contrast you need */
-                                    />
-                                </span>
+                                <FontAwesomeIcon icon={faCopy} onClick={openSaveAs} title="Create Copy" />
                             </div>
                         )}
 
@@ -4154,6 +4522,10 @@ const RiskManagementPageIBRA = () => {
                             <FontAwesomeIcon style={{ color: "#7EAC89" }} icon={faCheckCircle} className={`${(!loadedID) ? "disabled-share" : ""}`} onClick={handleApproveClick} title="Approve Draft" />
                         </div>)}
 
+                        {(inApproval || inReview) && !readOnly && canIn(access, "RMS", ["systemAdmin", "contributor"]) && (<div className="burger-menu-icon-risk-create-page-1">
+                            <FontAwesomeIcon style={{ color: "#CB6F6F" }} icon={faTimesCircle} className={`${(!loadedID) ? "disabled-share" : ""}`} onClick={handleRejectClick} title="Reject Document" />
+                        </div>)}
+
                         {(!readOnly && owner && !inApproval) && (<div className="burger-menu-icon-risk-create-page-1">
                             <FontAwesomeIcon
                                 icon={faDownload}
@@ -4167,7 +4539,7 @@ const RiskManagementPageIBRA = () => {
                             />
                         </div>)}
 
-                        {canRemove && (inApproval || inReview) && (<div className="burger-menu-icon-risk-create-page-1">
+                        {false && canRemove && (inApproval || inReview) && (<div className="burger-menu-icon-risk-create-page-1">
                             <FontAwesomeIcon icon={faBan} onClick={openRemoveApproval} title="Remove From Approval Process" style={{ color: "#CB6F6F" }} />
                         </div>)}
                     </div>
@@ -4179,26 +4551,43 @@ const RiskManagementPageIBRA = () => {
                     <TopBarDD refreshable={false} canIn={canIn} access={access} menu={"1"} create={true} risk={true} onHome={handleHomeNav} onRefresh={handleRefreshNav} />
                 </div>
 
+                {isRejected && (<div className="input-row">
+                    <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#CB6F6F", color: "white", fontWeight: "bold" }}>
+                        This document is in Read Only Mode as it has been rejected and requires document owner intervention.
+                    </div>
+                </div>)}
+
                 {(!isViewer && !readOnly && (inApproval || inReview)) && (<div className="input-row">
                     <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#7EAC89", color: "white", fontWeight: "bold" }}>
                         To approve this document, click on the green circle above.
                     </div>
                 </div>)}
 
-                {(isViewer && readOnly) && (<div className="input-row">
+                {(isViewer && readOnly && !isRejected) && (<div className="input-row">
                     <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#FFFF89", color: "black", fontWeight: "bold" }}>
                         View-only access. Please contact the owner to request edit access.
                     </div>
                 </div>)}
 
                 <div className={`scrollable-box-risk-create`} ref={scrollableRef}>
-                    {(!isViewer && readOnly && !inReview && !inApproval) && (<div className="input-row">
+                    {versionPreview && versionInfo && (
+                        <div className="input-row">
+                            <div
+                                className="input-box-aim-cp"
+                                style={{ marginBottom: "10px", background: "#002060", color: "white", fontWeight: "bold" }}
+                            >
+                                Viewing {versionInfo.label} - read only historical version.
+                            </div>
+                        </div>
+                    )}
+
+                    {(!signedOffPreview && !versionPreview && !isViewer && readOnly && !inReview && !inApproval && !isRejected) && (<div className="input-row">
                         <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#CB6F6F", color: "white", fontWeight: "bold" }}>
                             The draft is in Read Only Mode as the following user is modifying the draft: {lockUser}
                         </div>
                     </div>)}
 
-                    {(!isViewer && readOnly && (inReview || inApproval)) && (<div className="input-row">
+                    {(!versionPreview && !isViewer && readOnly && (inReview || inApproval) && !isRejected) && (<div className="input-row">
                         <div className={`input-box-aim-cp`} style={{ marginBottom: "10px", background: "#FFFF89", color: "black", fontWeight: "bold" }}>
                             This document is currently in the approval process
                         </div>
@@ -4216,10 +4605,22 @@ const RiskManagementPageIBRA = () => {
                                     value={formData.title}
                                     onChange={handleInputChange}
                                     placeholder="Insert Risk Assessment Title (e.g., Working at Heights)"
-                                    readOnly={readOnly}
+                                    readOnly={readOnly || Boolean(loadedID)}
                                 />
                                 <span className="type-risk-create">{formData.documentType}</span>
                             </div>
+                            {Boolean(loadedID) && !readOnly && (
+                                <button
+                                    type="button"
+                                    className="generate-button font-fam"
+                                    onClick={openRenamePopup}
+                                    disabled={readOnly}
+                                    title={readOnly ? "This draft is currently locked" : "Rename this draft"}
+                                    style={{ marginTop: "15px" }}
+                                >
+                                    Rename Document
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -4398,6 +4799,16 @@ const RiskManagementPageIBRA = () => {
             {helpScope && (<RiskScope setClose={closeHelpScope} />)}
             <ToastContainer />
             {isSaveAsModalOpen && (<SaveAsPopup saveAs={confirmSaveAs} onClose={closeSaveAs} current={formData.title} type={riskType} userID={userID} create={false} />)}
+            {isRenamePopupOpen && (
+                <RenameDraftPopup
+                    onClose={closeRenamePopup}
+                    onRename={handleRenameDraft}
+                    current={formData.title}
+                    draftId={loadedIDRef.current || loadedID}
+                    siblingDraftsRoute={`${process.env.REACT_APP_URL}/api/riskDraft/ibra/drafts/${userID}`}
+                    titleField="title"
+                />
+            )}
             {showSiteDropdown && filteredSites.length > 0 && (
                 <ul
                     className="floating-dropdown"
@@ -4444,6 +4855,7 @@ const RiskManagementPageIBRA = () => {
                     triggerType={saveConfirmTrigger}
                 />
             )}
+            {rejectState && (<RejectReason isOpen={rejectState} onClose={closeRejectPopup} onSubmit={rejectDraft} loading={rejecting} />)}
             {removeApprovalState && (
                 <RemoveFromApprovalPopup
                     closeModal={closeRemoveApproval}
@@ -4455,6 +4867,15 @@ const RiskManagementPageIBRA = () => {
             )}
             {isSaving && (
                 <SavingInProgress />
+            )}
+            {showReshareDraft && (<ReshareDraftPopup reshare={handleReshareDraft} doNotReshare={handleDoNotReshareDraft} />)}
+            {showRejectReasonView && (
+                <RejectReasonView
+                    rejectorName={rejectionInfo.rejectorName}
+                    rejectDate={formatRejectDate(rejectionInfo.rejectDate)}
+                    rejectionReason={rejectionInfo.rejectionMessage}
+                    reviewDocument={handleReviewRejectedDraft}
+                />
             )}
             {isPublishing && (
                 <PublishingInProgress />

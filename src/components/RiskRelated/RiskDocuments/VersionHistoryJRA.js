@@ -164,7 +164,7 @@ const VersionHistoryJRA = () => {
                                     versions.map((ver, index) => (
                                         <tr key={index} className={`file-info-row-height ibra-version-history-file-info-tr`}>
                                             <td className="ibra-version-history-file-nr">{index + 1}</td>
-                                            <td className="ibra-version-history-file-fn">{removeFileExtension(ver.fileName)}</td>
+                                            <td className="ibra-version-history-file-fn">{(ver.fileName)}</td>
                                             <td className="ibra-version-history-file-ver"><button className="verion-download-button" onClick={() => openDownloadModal(ver.azureFileName, ver.fileName)}><FontAwesomeIcon icon={faDownload} title="Download" /></button></td>
                                         </tr>
                                     ))

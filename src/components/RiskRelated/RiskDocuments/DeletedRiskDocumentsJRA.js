@@ -56,7 +56,7 @@ const DeletedRiskDocumentsJRA = () => {
 
     const getFilterValuesForCell = (row, colId, index) => {
         if (colId === "nr") return [String(index + 1)];
-        if (colId === "name") return [removeFileExtension(row.formData.title)];
+        if (colId === "name") return [(row.formData.title)];
         if (colId === "version") return [String(row.formData.version)];
         if (colId === "deletedBy") return [row.deleter?.username || "N/A"];
         if (colId === "dateDeleted") return [formatDate(row.dateDeleted)];
@@ -98,7 +98,7 @@ const DeletedRiskDocumentsJRA = () => {
 
     const allColumns = [
         { id: "nr", title: "Nr", thClass: "gen-th ibraGenDelNr", tdClass: "cent-values-gen gen-point", td: (f, i) => i + 1 },
-        { id: "name", title: "Document Name", thClass: "gen-th ibraGenDelFN", tdClass: "gen-point", td: (f) => (<div className="popup-anchor"><span>{removeFileExtension(f.formData.title)}</span></div>) },
+        { id: "name", title: "Document Name", thClass: "gen-th ibraGenDelFN", tdClass: "gen-point", td: (f) => (<div className="popup-anchor"><span>{(f.formData.title)}</span></div>) },
         { id: "version", title: "Version", thClass: "gen-th ibraGenDelVer", tdClass: "cent-values-gen gen-point", td: (f) => f.formData.version },
         { id: "deletedBy", title: "Deleted By", thClass: "gen-th ibraGenDelDB", tdClass: "cent-values-gen gen-point", td: (f) => f.deleter.username },
         { id: "dateDeleted", title: "Date Deleted", thClass: "gen-th ibraGenDelDD", tdClass: "cent-values-gen gen-point", td: (f) => formatDate(f.dateDeleted) },

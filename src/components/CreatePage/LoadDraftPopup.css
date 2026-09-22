@@ -128,9 +128,15 @@
 }
 
 .load-draft-delete {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.load-draft-actions {
+    display: flex;
     justify-content: center;
     align-items: center;
-    text-align: center;
+    gap: 8px;
 }
 
 .draft-select-header {

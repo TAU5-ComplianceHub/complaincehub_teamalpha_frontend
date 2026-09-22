@@ -2,9 +2,12 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { jwtDecode } from 'jwt-decode';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSpinner, faTrash, faCircleLeft, faPenToSquare, faRotateLeft, faArrowsRotate, faMagnifyingGlass, faCircleXmark, faX, faFilter, faSortUp, faSortDown, faArrowLeft, faCaretRight, faCaretLeft, faSearch } from '@fortawesome/free-solid-svg-icons';
+import { faSpinner, faTrash, faCircleLeft, faPenToSquare, faRotateLeft, faArrowsRotate, faMagnifyingGlass, faCircleXmark, faX, faFilter, faSortUp, faSortDown, faArrowLeft, faCaretRight, faCaretLeft, faSearch, faEdit } from '@fortawesome/free-solid-svg-icons';
 import TopBar from "../Notifications/TopBar";
 import DeleteDraftPopup from "../Popups/DeleteDraftPopup";
+import { toast, ToastContainer } from "react-toastify";
+import RenameDraftPopup from "../Popups/RenameDraftPopup";
+import DraftOptionsPopup from "../Popups/DraftOptionsPopup";
 
 const OnlineTrainingDrafts = () => {
     const [drafts, setDrafts] = useState([]);
@@ -20,6 +23,8 @@ const OnlineTrainingDrafts = () => {
     const [isLoadingDraft, setIsLoadingDraft] = useState(false);
     const [isSidebarVisible, setIsSidebarVisible] = useState(false);
     const [userID, setUserID] = useState('');
+    const [openDraftMenuId, setOpenDraftMenuId] = useState(null);
+    const [renamePopup, setRenamePopup] = useState({ open: false, draftId: null, currentTitle: "" });
     const navigate = useNavigate();
 
     // Excel Filter States
@@ -66,6 +71,12 @@ const OnlineTrainingDrafts = () => {
 
     const getDraftStatus = (item) => {
         const userIDs = Array.isArray(item?.userIDs) ? item.userIDs : [];
+        if (item.isWithdrawn) {
+            return "Published - Withdrawn"
+        }
+        if (item.isRejected) {
+            return "Published - Rejected"
+        }
         return userIDs.length > 1 ? "In Collaboration" : "In Development";
     };
 
@@ -243,6 +254,53 @@ const OnlineTrainingDrafts = () => {
 
         setDeleteConfirm({ open: false, draftId: null });
         closeDelete();
+    };
+
+    const openRename = (item) => {
+        if (item.lockActive) {
+            toast.warn("This draft is currently locked and its title cannot be changed.", { closeButton: false });
+            return;
+        }
+        setRenamePopup({ open: true, draftId: item._id, currentTitle: item.formData?.courseTitle || "" });
+    };
+
+    const closeRename = () => {
+        setRenamePopup({ open: false, draftId: null, currentTitle: "" });
+    };
+
+    const handleRename = async (newTitle) => {
+        const { draftId } = renamePopup;
+        if (!draftId) return;
+
+        const route = `${process.env.REACT_APP_URL}/api/onlineTrainingCourses/rename/${draftId}`;
+
+        try {
+            const response = await fetch(route, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+                body: JSON.stringify({ title: newTitle }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || "Failed to rename draft");
+            }
+
+            setDrafts(prev => prev.map(draft =>
+                draft._id === draftId
+                    ? { ...draft, formData: { ...draft.formData, courseTitle: newTitle } }
+                    : draft
+            ));
+
+            toast.success("Draft renamed successfully");
+        } catch (error) {
+            console.error("Failed to rename draft:", error);
+            toast.error(error.message || "Failed to rename draft");
+            throw error;
+        }
     };
 
     const clearSearch = () => {
@@ -445,7 +503,24 @@ const OnlineTrainingDrafts = () => {
                                                     <td style={{ color: item.approvalState ? "black" : "black", fontFamily: "Arial", textAlign: "center" }}>
                                                         {index + 1}
                                                     </td>
-                                                    <td style={{ color: item.approvalState ? "black" : "black", fontFamily: "Arial" }}>{`${item.formData.courseTitle}`}</td>
+                                                    <td
+                                                        style={{ color: item.approvalState ? "black" : "black", fontFamily: "Arial", cursor: "pointer" }}
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            setOpenDraftMenuId((current) => current === item._id ? null : item._id);
+                                                        }}
+                                                    >
+                                                        <div className="draft-options-anchor">
+                                                            <span>{item.formData.courseTitle}</span>
+                                                            <DraftOptionsPopup
+                                                                isOpen={openDraftMenuId === item._id}
+                                                                draft={item}
+                                                                openDraftRoute={`/FrontendDMS/onlineCreateCourse/${item._id}`}
+                                                                versionHistoryRoute={`/FrontendDMS/tmsDraftHistory/onlineTraining/${item._id}`}
+                                                                onClose={() => setOpenDraftMenuId(null)}
+                                                            />
+                                                        </div>
+                                                    </td>
                                                     <td style={{ textAlign: "center", fontFamily: "Arial", ...getStatusStyle(getDraftStatus(item)) }}>
                                                         {getDraftStatus(item)}
                                                     </td>
@@ -463,13 +538,24 @@ const OnlineTrainingDrafts = () => {
                                                         {item.lockActive ? "Active" : item.dateUpdated ? formatDateTime(item.dateUpdated) : "Not Updated Yet"}
                                                     </td>
                                                     <td className="load-draft-delete" >
-                                                        <button
-                                                            className={"action-button-load-draft delete-button-load-draft"}
-                                                            style={{ width: "100%" }}
-                                                            onClick={(e) => { e.stopPropagation(); confirmDelete(item._id, item.formData.courseTitle, item?.creator?._id) }}
-                                                        >
-                                                            <FontAwesomeIcon icon={faTrash} title="Remove Draft" style={{ color: item.approvalState ? "black" : "black" }} />
-                                                        </button>
+                                                        <div className="load-draft-actions">
+                                                            {String(item?.creator?._id) === String(userID) && (
+                                                                <button
+                                                                    className={"action-button-load-draft delete-button-load-draft"}
+                                                                    style={{ width: "100%" }}
+                                                                    onClick={(e) => { e.stopPropagation(); openRename(item) }}
+                                                                >
+                                                                    <FontAwesomeIcon icon={faEdit} title="Rename Document" style={{ color: item.approvalState ? "black" : "black" }} />
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                className={"action-button-load-draft delete-button-load-draft"}
+                                                                style={{ width: "100%" }}
+                                                                onClick={(e) => { e.stopPropagation(); confirmDelete(item._id, item.formData.courseTitle, item?.creator?._id) }}
+                                                            >
+                                                                <FontAwesomeIcon icon={faTrash} title="Remove Draft" style={{ color: item.approvalState ? "black" : "black" }} />
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))
@@ -497,6 +583,17 @@ const OnlineTrainingDrafts = () => {
                 </div>
             </div>
             {deletePopup && (<DeleteDraftPopup closeModal={closeDelete} deleteDraft={handleDelete} draftName={title} author={author} />)}
+
+            {renamePopup.open && (
+                <RenameDraftPopup
+                    onClose={closeRename}
+                    onRename={handleRename}
+                    current={renamePopup.currentTitle}
+                    draftId={renamePopup.draftId}
+                    siblingDraftsRoute={`${process.env.REACT_APP_URL}/api/onlineTrainingCourses/getDrafts/${userID}`}
+                    titleField="courseTitle"
+                />
+            )}
 
             {excelFilter.open && (
                 <div className="excel-filter-popup" ref={excelPopupRef} style={{ position: "fixed", top: excelFilter.pos.top, left: excelFilter.pos.left, width: excelFilter.pos.width, zIndex: 9999 }} onWheel={handleInnerScrollWheel}>
@@ -546,6 +643,7 @@ const OnlineTrainingDrafts = () => {
                     })()}
                 </div>
             )}
+            <ToastContainer />
         </div>
     );
 };
